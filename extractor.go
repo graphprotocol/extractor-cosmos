@@ -36,8 +36,6 @@ func (ex *ExtractorService) OnStart() error {
 	file, _ := os.Create("log-" + time.Now().Format("2006-01-02_15:04:05") + ".log")
 	ex.handle = file
 
-	sync := &sync.Mutex{}
-
 	blockSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriber, types.EventQueryNewBlock)
 	if err != nil {
 		return err
@@ -47,32 +45,36 @@ func (ex *ExtractorService) OnStart() error {
 	if err != nil {
 		return err
 	}
-
-	go func() {
-		for {
-			msg := <-blockSub.Out()
-			eventData := msg.Data().(types.EventDataNewBlock)
-			height := eventData.Block.Header.Height
-
-			if err := IndexBlock(file, sync, eventData); err != nil {
-				ex.Logger.Error("failed to index block", "height", height, "err", err)
-			} else {
-				ex.Logger.Info("indexed block", "height", height)
-			}
-
-			for i := int64(0); i < int64(len(eventData.Block.Txs)); i++ {
-				msg2 := <-txsSub.Out()
-				txr := msg2.Data().(types.EventDataTx).TxResult
-				if err = IndexTx(file, sync, &txr); err != nil {
-					ex.Logger.Error("failed to index block txs", "height", height, "err", err)
-				} else {
-					ex.Logger.Debug("indexed block txs", "height", height) // , "num_txs", eventData.NumTxs)
-				}
-			}
-
-		}
-	}()
+	go ex.listen(file, blockSub, txsSub)
 	return nil
+}
+
+func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub types.Subscription) {
+
+	sync := &sync.Mutex{}
+
+	for {
+		msg := <-blockSub.Out()
+		eventData := msg.Data().(types.EventDataNewBlock)
+		height := eventData.Block.Header.Height
+
+		if err := IndexBlock(w, sync, eventData); err != nil {
+			ex.Logger.Error("failed to index block", "height", height, "err", err)
+		} else {
+			ex.Logger.Info("indexed block", "height", height)
+		}
+
+		for i := int64(0); i < int64(len(eventData.Block.Txs)); i++ {
+			msg2 := <-txsSub.Out()
+			txr := msg2.Data().(types.EventDataTx).TxResult
+			if err := IndexTx(w, sync, &txr); err != nil {
+				ex.Logger.Error("failed to index block txs", "height", height, "err", err)
+			} else {
+				ex.Logger.Debug("indexed block txs", "height", height) // , "num_txs", eventData.NumTxs)
+			}
+		}
+
+	}
 }
 
 func (ex *ExtractorService) OnStop() {
