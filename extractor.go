@@ -28,7 +28,9 @@ type ExtractorService struct {
 }
 
 func NewExtractorService(eventBus *types.EventBus) *ExtractorService {
-	return &ExtractorService{eventBus: eventBus}
+	is := &ExtractorService{eventBus: eventBus}
+	is.BaseService = *service.NewBaseService(nil, "ExtractorService", is)
+	return is
 }
 
 func (ex *ExtractorService) OnStart() error {
