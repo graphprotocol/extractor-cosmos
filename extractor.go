@@ -49,9 +49,9 @@ func (ex *ExtractorService) OnStart() error {
 	var writer io.Writer
 
 	switch ex.config.OutputFile {
-	case "stdout":
+	case "stdout", "STDOUT":
 		writer = os.Stdout
-	case "stderr":
+	case "stderr", "STDERR":
 		writer = os.Stderr
 	default:
 		var outputFile string
