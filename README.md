@@ -18,10 +18,10 @@ enabled = true
 
 # Output log file for all extracted data
 # Could be one of the:
-# - "stdout", "STDOUT"
-# - "stderr", "STDERR"
+# - "stdout", "STDOUT" will print out logs to standard output
+# - "stderr", "STDERR" will print out logs to standard error output
 # - "path.log" for relative to ~/.gaia directory
-" - "/path/to/log.log" - for absolute path
+# - "/path/to/log.log" - for absolute path
 output_file = "extractor.log"
 
 # Height range filtering
