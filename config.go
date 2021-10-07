@@ -6,4 +6,5 @@ type Config struct {
 	RootDir     string
 	OutputFile  string
 	StartHeight int64
+	EndHeight   int64
 }

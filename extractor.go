@@ -46,19 +46,30 @@ func (ex *ExtractorService) OnStart() error {
 		return fmt.Errorf("extractor output file must be set")
 	}
 
-	var outputFile string
+	var writer io.Writer
 
-	if strings.HasPrefix(ex.config.OutputFile, "/") {
-		outputFile = ex.config.OutputFile
-	} else {
-		outputFile = filepath.Join(ex.config.RootDir, ex.config.OutputFile)
-	}
+	switch ex.config.OutputFile {
+	case "stdout":
+		writer = os.Stdout
+	case "stderr":
+		writer = os.Stderr
+	default:
+		var outputFile string
 
-	file, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_SYNC, 0666)
-	if err != nil {
-		return fmt.Errorf("extractor cant create output file: %w", err)
+		if strings.HasPrefix(ex.config.OutputFile, "/") {
+			outputFile = ex.config.OutputFile
+		} else {
+			outputFile = filepath.Join(ex.config.RootDir, ex.config.OutputFile)
+		}
+
+		file, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_SYNC, 0666)
+		if err != nil {
+			return fmt.Errorf("extractor can't create output file: %w", err)
+		}
+
+		ex.handle = file
+		writer = file
 	}
-	ex.handle = file
 
 	blockSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryNewBlock)
 	if err != nil {
@@ -70,7 +81,7 @@ func (ex *ExtractorService) OnStart() error {
 		return err
 	}
 
-	go ex.listen(file, blockSub, txsSub)
+	go ex.listen(writer, blockSub, txsSub)
 
 	return nil
 }
@@ -92,17 +103,18 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub types.Subscript
 
 	for {
 		msg := <-blockSub.Out()
-
 		eventData := msg.Data().(types.EventDataNewBlock)
 		height := eventData.Block.Header.Height
 
 		// Skip extraction on unwanted heights
-		if height < ex.config.StartHeight {
+		if ex.shouldSkipHeight(height) {
+			ex.drainSubscription(txsSub, len(eventData.Block.Txs))
 			ex.Logger.Info("skipped block", "height", height)
 			continue
 		}
 
 		if err := indexBlock(w, sync, eventData); err != nil {
+			ex.drainSubscription(txsSub, len(eventData.Block.Txs))
 			ex.Logger.Error("failed to index block", "height", height, "err", err)
 			continue
 		}
@@ -119,6 +131,17 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub types.Subscript
 				ex.Logger.Debug("indexed block txs", "height", height)
 			}
 		}
+	}
+}
+
+func (ex *ExtractorService) shouldSkipHeight(height int64) bool {
+	return ex.config.StartHeight > 0 && height < ex.config.StartHeight ||
+		ex.config.EndHeight > 0 && height > ex.config.EndHeight
+}
+
+func (ex *ExtractorService) drainSubscription(sub types.Subscription, n int) {
+	for i := 0; i < n; i++ {
+		<-sub.Out()
 	}
 }
 
@@ -154,18 +177,29 @@ func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) err
 	sync.Lock()
 	defer sync.Unlock()
 
-	io.WriteString(out, fmt.Sprintf("DMLOG BLOCK %d %d ", bh.Block.Header.Height, bh.Block.Header.Time.UnixMilli()))
-	io.WriteString(out, base64.StdEncoding.EncodeToString(marshaledBlock))
-	io.WriteString(out, "\n")
+	_, err = fmt.Fprintf(out, "DMLOG BLOCK %d %d %s\n",
+		bh.Block.Header.Height,
+		bh.Block.Header.Time.UnixMilli(),
+		base64.StdEncoding.EncodeToString(marshaledBlock),
+	)
+	if err != nil {
+		return err
+	}
 
 	for i, ev := range bh.ResultBeginBlock.Events {
 		attrs := attributesString(ev.Attributes)
-		io.WriteString(out, fmt.Sprintf("DMLOG BLOCK_BEGIN_EVENT %d %d %s %s \n", bh.Block.Header.Height, i, ev.Type, attrs))
+		_, err = io.WriteString(out, fmt.Sprintf("DMLOG BLOCK_BEGIN_EVENT %d %d %s %s \n", bh.Block.Header.Height, i, ev.Type, attrs))
+		if err != nil {
+			return err
+		}
 	}
 
 	for i, ev := range bh.ResultEndBlock.Events {
 		attrs := attributesString(ev.Attributes)
-		io.WriteString(out, fmt.Sprintf("DMLOG BLOCK_END_EVENT %d %d %s %s \n", bh.Block.Header.Height, i, ev.Type, attrs))
+		_, err = io.WriteString(out, fmt.Sprintf("DMLOG BLOCK_END_EVENT %d %d %s %s \n", bh.Block.Header.Height, i, ev.Type, attrs))
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
