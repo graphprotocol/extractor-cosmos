@@ -136,16 +136,19 @@ func (ex *ExtractorService) drainSubscription(sub types.Subscription, n int) {
 }
 
 func (ex *ExtractorService) initStreamOutput() (io.Writer, error) {
-	var writer io.Writer
+	var (
+		writer     io.Writer
+		outputFile string
+	)
 
 	switch ex.config.OutputFile {
 	case "stdout", "STDOUT":
 		writer = os.Stdout
+		outputFile = "STDOUT"
 	case "stderr", "STDERR":
 		writer = os.Stderr
+		outputFile = "STDERR"
 	default:
-		var outputFile string
-
 		if strings.HasPrefix(ex.config.OutputFile, "/") {
 			outputFile = ex.config.OutputFile
 		} else {
@@ -162,6 +165,7 @@ func (ex *ExtractorService) initStreamOutput() (io.Writer, error) {
 		writer = file
 	}
 
+	ex.Logger.Info("configured stream output", "dest", outputFile)
 	return writer, nil
 }
 
