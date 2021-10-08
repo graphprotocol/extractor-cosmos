@@ -121,7 +121,7 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub types.Subscript
 
 		ex.Logger.Info("indexed block", "height", height)
 
-		for i := int64(0); i < int64(len(eventData.Block.Txs)); i++ {
+		for i := 0; i < len(eventData.Block.Txs); i++ {
 			txMsg := <-txsSub.Out()
 			txResult := txMsg.Data().(types.EventDataTx).TxResult
 
