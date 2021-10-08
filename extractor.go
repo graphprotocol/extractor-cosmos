@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -18,6 +19,14 @@ import (
 
 const (
 	subscriberName = "ExtractorService"
+)
+
+var (
+	timeFormats = map[string]string{
+		"$date": "20060102",
+		"$time": "150405",
+		"$ts":   "20060102-150405",
+	}
 )
 
 type ExtractorService struct {
@@ -46,31 +55,6 @@ func (ex *ExtractorService) OnStart() error {
 		return fmt.Errorf("extractor output file must be set")
 	}
 
-	var writer io.Writer
-
-	switch ex.config.OutputFile {
-	case "stdout", "STDOUT":
-		writer = os.Stdout
-	case "stderr", "STDERR":
-		writer = os.Stderr
-	default:
-		var outputFile string
-
-		if strings.HasPrefix(ex.config.OutputFile, "/") {
-			outputFile = ex.config.OutputFile
-		} else {
-			outputFile = filepath.Join(ex.config.RootDir, ex.config.OutputFile)
-		}
-
-		file, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_SYNC, 0666)
-		if err != nil {
-			return fmt.Errorf("extractor can't create output file: %w", err)
-		}
-
-		ex.handle = file
-		writer = file
-	}
-
 	blockSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryNewBlock)
 	if err != nil {
 		return err
@@ -78,6 +62,12 @@ func (ex *ExtractorService) OnStart() error {
 
 	txsSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryTx)
 	if err != nil {
+		return err
+	}
+
+	writer, err := ex.initStreamOutput()
+	if err != nil {
+		ex.Logger.Error("stream output init failed", "err", err)
 		return err
 	}
 
@@ -143,6 +133,36 @@ func (ex *ExtractorService) drainSubscription(sub types.Subscription, n int) {
 	for i := 0; i < n; i++ {
 		<-sub.Out()
 	}
+}
+
+func (ex *ExtractorService) initStreamOutput() (io.Writer, error) {
+	var writer io.Writer
+
+	switch ex.config.OutputFile {
+	case "stdout", "STDOUT":
+		writer = os.Stdout
+	case "stderr", "STDERR":
+		writer = os.Stderr
+	default:
+		var outputFile string
+
+		if strings.HasPrefix(ex.config.OutputFile, "/") {
+			outputFile = ex.config.OutputFile
+		} else {
+			outputFile = filepath.Join(ex.config.RootDir, ex.config.OutputFile)
+		}
+
+		outputFile = formatFilename(outputFile)
+		file, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_SYNC, 0666)
+		if err != nil {
+			return nil, err
+		}
+
+		ex.handle = file
+		writer = file
+	}
+
+	return writer, nil
 }
 
 func indexTX(out io.Writer, sync *sync.Mutex, result *abci.TxResult) error {
@@ -216,4 +236,12 @@ func attributesString(attrs []abci.EventAttribute) string {
 	}
 
 	return out.String()
+}
+
+func formatFilename(name string) string {
+	now := time.Now().UTC()
+	for format, val := range timeFormats {
+		name = strings.Replace(name, format, now.Format(val), -1)
+	}
+	return name
 }
