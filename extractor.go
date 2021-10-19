@@ -222,7 +222,7 @@ func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) err
 
 	for i, ev := range bh.ResultBeginBlock.Events {
 		attrs := attributesString(ev.Attributes)
-		_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s \n", dmBeginEvent, bh.Block.Header.Height, i, ev.Type, attrs))
+		_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s\n", dmBeginEvent, bh.Block.Header.Height, i, ev.Type, attrs))
 		if err != nil {
 			return err
 		}
@@ -230,7 +230,7 @@ func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) err
 
 	for i, ev := range bh.ResultEndBlock.Events {
 		attrs := attributesString(ev.Attributes)
-		_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s \n", dmEndEvent, bh.Block.Header.Height, i, ev.Type, attrs))
+		_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s\n", dmEndEvent, bh.Block.Header.Height, i, ev.Type, attrs))
 		if err != nil {
 			return err
 		}
