@@ -55,6 +55,7 @@ func NewExtractorService(eventBus *types.EventBus, config *Config) *ExtractorSer
 
 func (ex *ExtractorService) OnStart() error {
 	if ex.config == nil {
+		ex.Logger.Info("extractor config is not provided, using default one")
 		ex.config = DefaultConfig()
 	}
 	if err := ex.config.Validate(); err != nil {
