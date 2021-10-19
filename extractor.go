@@ -19,6 +19,12 @@ import (
 
 const (
 	subscriberName = "ExtractorService"
+
+	dmPrefix     = "DMLOG "
+	dmBlock      = dmPrefix + "BLOCK"
+	dmBeginEvent = dmPrefix + "BLOCK_BEGIN_EVENT"
+	dmEndEvent   = dmPrefix + "BLOCK_END_EVENT"
+	dmTx         = dmPrefix + "TX"
 )
 
 var (
@@ -49,10 +55,11 @@ func NewExtractorService(eventBus *types.EventBus, config *Config) *ExtractorSer
 
 func (ex *ExtractorService) OnStart() error {
 	if ex.config == nil {
-		return fmt.Errorf("extractor config is not provided")
+		ex.config = DefaultConfig()
 	}
-	if ex.config.OutputFile == "" {
-		return fmt.Errorf("extractor output file must be set")
+	if err := ex.config.Validate(); err != nil {
+		ex.Logger.Error("extractor config validation error", "err", err)
+		return err
 	}
 
 	blockSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryNewBlock)
@@ -178,7 +185,8 @@ func indexTX(out io.Writer, sync *sync.Mutex, result *abci.TxResult) error {
 	sync.Lock()
 	defer sync.Unlock()
 
-	_, err = io.WriteString(out, fmt.Sprintf("DMLOG TX %d %d %s\n",
+	_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s\n",
+		dmTx,
 		result.Height,
 		result.Index,
 		base64.StdEncoding.EncodeToString(rawBytes),
@@ -201,7 +209,8 @@ func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) err
 	sync.Lock()
 	defer sync.Unlock()
 
-	_, err = fmt.Fprintf(out, "DMLOG BLOCK %d %d %s\n",
+	_, err = fmt.Fprintf(out, "%s %d %d %s\n",
+		dmBlock,
 		bh.Block.Header.Height,
 		bh.Block.Header.Time.UnixMilli(),
 		base64.StdEncoding.EncodeToString(marshaledBlock),
@@ -212,7 +221,7 @@ func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) err
 
 	for i, ev := range bh.ResultBeginBlock.Events {
 		attrs := attributesString(ev.Attributes)
-		_, err = io.WriteString(out, fmt.Sprintf("DMLOG BLOCK_BEGIN_EVENT %d %d %s %s \n", bh.Block.Header.Height, i, ev.Type, attrs))
+		_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s \n", dmBeginEvent, bh.Block.Header.Height, i, ev.Type, attrs))
 		if err != nil {
 			return err
 		}
@@ -220,7 +229,7 @@ func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) err
 
 	for i, ev := range bh.ResultEndBlock.Events {
 		attrs := attributesString(ev.Attributes)
-		_, err = io.WriteString(out, fmt.Sprintf("DMLOG BLOCK_END_EVENT %d %d %s %s \n", bh.Block.Header.Height, i, ev.Type, attrs))
+		_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s \n", dmEndEvent, bh.Block.Header.Height, i, ev.Type, attrs))
 		if err != nil {
 			return err
 		}
