@@ -92,6 +92,7 @@ func (ex *ExtractorService) OnStop() {
 	}
 
 	if ex.handle != nil {
+		ex.Logger.Info("closing stream output", "dest", ex.config.OutputFile)
 		ex.handle.Close()
 	}
 }
@@ -169,6 +170,7 @@ func (ex *ExtractorService) initStreamOutput() (io.Writer, error) {
 			return nil, err
 		}
 
+		ex.config.OutputFile = outputFile
 		ex.handle = file
 		writer = file
 	}
