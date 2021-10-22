@@ -247,24 +247,23 @@ func indexTX(out io.Writer, sync *sync.Mutex, result *abci.TxResult) error {
 }
 
 func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error {
-
-	nb := codec.EventDataNewBlock{
-		Block:            &codec.Block{
-			Header:     &codec.Header{
+	nb := &codec.EventDataNewBlock{
+		Block: &codec.Block{
+			Header: &codec.Header{
 				Version:            &codec.Consensus{},
 				ChainId:            bh.Block.Header.ChainID,
 				Height:             uint64(bh.Block.Header.Height),
 				Time:               &codec.Timestamp{},
 				LastBlockId:        &codec.BlockID{},
-				LastCommitHash:     []byte{},
-				DataHash:           []byte{},
-				ValidatorsHash:     []byte{},
-				NextValidatorsHash: []byte{},
-				ConsensusHash:      []byte{},
-				AppHash:            []byte{},
-				LastResultsHash:    []byte{},
-				EvidenceHash:       []byte{},
-				ProposerAddress:    []byte{},
+				LastCommitHash:     bh.Block.Header.LastCommitHash,
+				DataHash:           bh.Block.Header.DataHash,
+				ValidatorsHash:     bh.Block.Header.ValidatorsHash,
+				NextValidatorsHash: bh.Block.Header.NextValidatorsHash,
+				ConsensusHash:      bh.Block.Header.ConsensusHash,
+				AppHash:            bh.Block.Header.AppHash,
+				LastResultsHash:    bh.Block.Header.LastResultsHash,
+				EvidenceHash:       bh.Block.Header.EvidenceHash,
+				ProposerAddress:    bh.Block.Header.ProposerAddress,
 			},
 			Data:       &codec.Data{},
 			Evidence:   &codec.EvidenceList{},
@@ -275,6 +274,32 @@ func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) err
 		ResultEndBlock:   &codec.ResponseEndBlock{},
 	}
 
+	for _, ev := range bh.ResultBeginBlock.Events {
+		ev := &codec.Event{Eventtype: ev.Type}
+
+		//	for _, at := range ev.Attributes {
+		//		ev.Attributes = append()
+		//	}
+
+		nb.ResultBeginBlock.Events = append(nb.ResultBeginBlock.Events, ev)
+	}
+
+	marshaledBlock, err := proto.Marshal(nb)
+	if err != nil {
+		return err
+	}
+	sync.Lock()
+	defer sync.Unlock()
+	_, err = fmt.Fprintf(out, "%s %d %d %s\n",
+		dmBlock,
+		bh.Block.Header.Height,
+		bh.Block.Header.Time.UnixMilli(),
+		base64.StdEncoding.EncodeToString(marshaledBlock),
+	)
+	if err != nil {
+		return err
+	}
+}
 func formatFilename(name string) string {
 	now := time.Now().UTC()
 	for format, val := range timeFormats {
