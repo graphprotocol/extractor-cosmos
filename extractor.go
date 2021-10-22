@@ -133,6 +133,7 @@ func (ex *ExtractorService) OnStop() {
 	}
 
 	if ex.handle != nil {
+		ex.Logger.Info("closing stream output", "dest", ex.config.OutputFile)
 		ex.handle.Close()
 	}
 }
@@ -219,6 +220,7 @@ func (ex *ExtractorService) initStreamOutput() (io.Writer, error) {
 			return nil, err
 		}
 
+		ex.config.OutputFile = outputFile
 		ex.handle = file
 		writer = file
 	}
@@ -394,14 +396,14 @@ func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) err
 		bh.Block.Header.Time.UnixMilli(),
 		base64.StdEncoding.EncodeToString(marshaledBlock),
 	)
-
+ 
 	return err
 }
 
 func formatFilename(name string) string {
 	now := time.Now().UTC()
 	for format, val := range timeFormats {
-		name = strings.Replace(name, format, now.Format(val), -1)
+		name = strings.Replace(name, format, now.Format(val), -1)  
 	}
 	return name
 }

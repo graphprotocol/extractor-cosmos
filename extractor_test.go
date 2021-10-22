@@ -2,6 +2,7 @@ package extractor
 
 import (
 	"bytes"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -32,6 +33,56 @@ func TestIndexBlock(t *testing.T) {
 				},
 			},
 			expected: "DMLOG BLOCK 1 1634674166000 ChoKABIIY2hhaW4taWQYASIGCPbLvIsGKgISABIAGgA=\n",
+		},
+		{
+			input: types.EventDataNewBlock{
+				Block: &types.Block{
+					Header: types.Header{
+						ChainID: "chain-id",
+						Height:  2,
+						Time:    time.Unix(1634674166, 0),
+					},
+				},
+				ResultBeginBlock: abci.ResponseBeginBlock{
+					Events: []abci.Event{
+						{
+							Type: "eventType1",
+							Attributes: []abci.EventAttribute{
+								{Key: []byte("key1"), Value: []byte("value1")},
+							},
+						},
+						{
+							Type: "eventType2",
+							Attributes: []abci.EventAttribute{
+								{Key: []byte("key1"), Value: []byte("value1")},
+							},
+						},
+					},
+				},
+				ResultEndBlock: abci.ResponseEndBlock{
+					Events: []abci.Event{
+						{
+							Type: "eventType1",
+							Attributes: []abci.EventAttribute{
+								{Key: []byte("key1"), Value: []byte("value1")},
+							},
+						},
+						{
+							Type: "eventType2",
+							Attributes: []abci.EventAttribute{
+								{Key: []byte("key1"), Value: []byte("value1")},
+							},
+						},
+					},
+				},
+			},
+			expected: strings.Join([]string{
+				"DMLOG BLOCK 2 1634674166000 ChoKABIIY2hhaW4taWQYAiIGCPbLvIsGKgISABIAGgA=",
+				"DMLOG BLOCK_BEGIN_EVENT 2 0 eventType1 @@key1:value1",
+				"DMLOG BLOCK_BEGIN_EVENT 2 1 eventType2 @@key1:value1",
+				"DMLOG BLOCK_END_EVENT 2 0 eventType1 @@key1:value1",
+				"DMLOG BLOCK_END_EVENT 2 1 eventType2 @@key1:value1",
+			}, "\n") + "\n",
 		},
 	}
 
