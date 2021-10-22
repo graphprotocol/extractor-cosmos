@@ -230,23 +230,25 @@ func (ex *ExtractorService) initStreamOutput() (io.Writer, error) {
 }
 
 func indexTX(out io.Writer, sync *sync.Mutex, result *abci.TxResult) error {
-	tx := &codec.TxResult{
-		Height: uint64(result.Height),
-		Index:  result.Index,
-		Tx:     result.Tx,
-		Result: &codec.ResponseDeliverTx{
-			Code:      result.Result.Code,
-			Data:      result.Result.Data,
-			Log:       result.Result.Log,
-			Info:      result.Result.Info,
-			GasWanted: result.Result.GasWanted,
-			GasUsed:   result.Result.GasUsed,
-			Codespace: result.Result.Codespace,
+	tx := &codec.EventDataTx{
+		TxResult: &codec.TxResult{
+			Height: uint64(result.Height),
+			Index:  result.Index,
+			Tx:     result.Tx,
+			Result: &codec.ResponseDeliverTx{
+				Code:      result.Result.Code,
+				Data:      result.Result.Data,
+				Log:       result.Result.Log,
+				Info:      result.Result.Info,
+				GasWanted: result.Result.GasWanted,
+				GasUsed:   result.Result.GasUsed,
+				Codespace: result.Result.Codespace,
+			},
 		},
 	}
 
 	for _, ev := range result.Result.Events {
-		tx.Result.Events = append(tx.Result.Events, mapEvent(ev))
+		tx.TxResult.Result.Events = append(tx.TxResult.Result.Events, mapEvent(ev))
 	}
 
 	marshaledTx, err := proto.Marshal(tx)
