@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"codec.proto"
 	"github.com/golang/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/service"
@@ -63,25 +64,20 @@ func (ex *ExtractorService) OnStart() error {
 		return err
 	}
 
-	blockSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryNewBlock)
+	blockSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, codec.EventDataNewBlock)
 	if err != nil {
 		return err
 	}
 
-	evidenceSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataNewEvidence)
+	txsSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, codec.EventDataTx)
 	if err != nil {
 		return err
 	}
 
-	txsSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryTx)
-	if err != nil {
-		return err
-	}
-
-	voteSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataVote)
-	if err != nil {
-		return err
-	}
+	// voteSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataVote)
+	// if err != nil {
+	// 	return err
+	// }
 
 	// roundStateSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataRoundState)
 	// if err != nil {
@@ -98,7 +94,7 @@ func (ex *ExtractorService) OnStart() error {
 	// 	return err
 	// }
 
-	valSetUpdatesSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataValidatorSetUpdates)
+	valSetUpdatesSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, codec.EventDataValidatorSetUpdates)
 	if err != nil {
 		return err
 	}
@@ -124,7 +120,7 @@ func (ex *ExtractorService) OnStart() error {
 		return err
 	}
 
-	go ex.listen(writer, blockSub, evidenceSub, txsSub, voteSub, valSetUpdatesSub)
+	go ex.listen(writer, blockSub, txsSub, voteSub, valSetUpdatesSub)
 
 	return nil
 }
@@ -146,7 +142,7 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, evidenceSub, txsSub, v
 
 	for {
 		blockMsg := <-blockSub.Out()
-		eventData := blockMsg.Data().(types.EventDataNewBlock)
+		eventData := blockMsg.Data().(codec.EventDataNewBlock)
 		height := eventData.Block.Header.Height
 
 		// Skip extraction on unwanted heights
@@ -155,6 +151,7 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, evidenceSub, txsSub, v
 			ex.Logger.Info("skipped block", "height", height)
 			continue
 		}
+		// we need to drain all
 
 		if err := indexBlock(w, sync, eventData); err != nil {
 			ex.drainSubscription(txsSub, len(eventData.Block.Txs))
@@ -174,26 +171,23 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, evidenceSub, txsSub, v
 				ex.Logger.Debug("indexed block txs", "height", height)
 			}
 		}
-		// this doesn't contain a height
-		evidenceMsg := <-evidenceSub.Out()
-		evidenceData := evidenceMsg.Data()
-		evidenceType := evidenceData.(types.EventDataNewEvidence).Evidence
 
-		ex.Logger.Info("New Evidence", "evidence", evidenceType)
+		for i := 0; i < len(eventData.Block.Header.evidence); i++ {
+			evidenceRslt := eventData.Block.EvidenceList.(proto.Evidence)
 
-		voteMsg := <-voteSub.Out()
-		voteData := voteMsg.Data()
-		voteHeight := voteData.(types.EventDataVote).Vote.Height
-		voteType := voteData.(types.EventDataVote).Vote.Type
-
-		ex.Logger.Info("New Vote", "height", voteHeight, "type", voteType)
+			if err != nil {
+				ex.Logger.Error("failed to index evidence ", "height", height, "err", err)
+			} else {
+				ex.Logger.Debug("indexed evidence", "height", height)
+			}
+		}
 
 		// not sure how we approach this because its gonna be a repeat
-		valSetMsg := <-valSetUpdatesSub.Out()
-		validatorData := valSetMsg.Data()
-		validator := validatorData.(types.EventDataValidatorSetUpdates).ValidatorUpdates
+		// valSetMsg := <-valSetUpdatesSub.Out()
+		// validatorData := valSetMsg.Data()
+		// validator := validatorData.(codec.EventDataValidatorSetUpdates).ValidatorUpdates
 
-		ex.Logger.Info("Validator Set Update", "validator", validator)
+		// ex.Logger.Info("Validator Set Update", "validator", validator)
 
 	}
 }
@@ -286,37 +280,40 @@ func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) err
 		return err
 	}
 
-	for i, ev := range bh.ResultBeginBlock.Events {
-		attrs := attributesString(ev.Attributes)
-		_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s \n", dmBeginEvent, bh.Block.Header.Height, i, ev.Type, attrs))
-		if err != nil {
-			return err
-		}
-	}
+	// this can be removed
+	// for i, ev := range bh.ResultBeginBlock.Events {
+	// 	attrs := attributesString(ev.Attributes)
+	// 	_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s \n", dmBeginEvent, bh.Block.Header.Height, i, ev.Type, attrs))
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
 
-	for i, ev := range bh.ResultEndBlock.Events {
-		attrs := attributesString(ev.Attributes)
-		_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s \n", dmEndEvent, bh.Block.Header.Height, i, ev.Type, attrs))
-		if err != nil {
-			return err
-		}
-	}
+	// for i, ev := range bh.ResultEndBlock.Events {
+	// 	attrs := attributesString(ev.Attributes)
+	// 	_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s \n", dmEndEvent, bh.Block.Header.Height, i, ev.Type, attrs))
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
 
 	return nil
 }
 
-func attributesString(attrs []abci.EventAttribute) string {
-	out := strings.Builder{}
+// may not be needed either
 
-	for _, at := range attrs {
-		out.WriteString("@@")
-		out.Write(at.Key)
-		out.WriteString(":")
-		out.Write(at.Value)
-	}
+// func attributesString(attrs []abci.EventAttribute) string {
+// 	out := strings.Builder{}
 
-	return out.String()
-}
+// 	for _, at := range attrs {
+// 		out.WriteString("@@")
+// 		out.Write(at.Key)
+// 		out.WriteString(":")
+// 		out.Write(at.Value)
+// 	}
+
+// 	return out.String()
+// }
 
 func formatFilename(name string) string {
 	now := time.Now().UTC()
