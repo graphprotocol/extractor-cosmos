@@ -94,11 +94,11 @@ func (ex *ExtractorService) OnStart() error {
 	// 	return err
 	// }
 
-	valSetUpdatesSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryValidatorSetUpdates)
-	if err != nil {
-		return err
-	}
-
+	/*	valSetUpdatesSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryValidatorSetUpdates)
+		if err != nil {
+			return err
+		}
+	*/
 	// stringSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataString)
 	// if err != nil {
 	// 	return err
@@ -120,7 +120,7 @@ func (ex *ExtractorService) OnStart() error {
 		return err
 	}
 
-	go ex.listen(writer, blockSub, txsSub, valSetUpdatesSub)
+	go ex.listen(writer, blockSub, txsSub)
 
 	return nil
 }
@@ -138,7 +138,7 @@ func (ex *ExtractorService) OnStop() {
 	}
 }
 
-func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesSub types.Subscription) {
+func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub types.Subscription) {
 	sync := &sync.Mutex{}
 
 	for {
@@ -396,14 +396,14 @@ func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) err
 		bh.Block.Header.Time.UnixMilli(),
 		base64.StdEncoding.EncodeToString(marshaledBlock),
 	)
- 
+
 	return err
 }
 
 func formatFilename(name string) string {
 	now := time.Now().UTC()
 	for format, val := range timeFormats {
-		name = strings.Replace(name, format, now.Format(val), -1)  
+		name = strings.Replace(name, format, now.Format(val), -1)
 	}
 	return name
 }
