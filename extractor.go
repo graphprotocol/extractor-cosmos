@@ -228,19 +228,37 @@ func (ex *ExtractorService) initStreamOutput() (io.Writer, error) {
 }
 
 func indexTX(out io.Writer, sync *sync.Mutex, result *abci.TxResult) error {
-	rawBytes, err := proto.Marshal(result)
+	tx := &codec.TxResult{
+		Height: uint64(result.Height),
+		Index:  result.Index,
+		Tx:     result.Tx,
+		Result: &codec.ResponseDeliverTx{
+			Code:      result.Result.Code,
+			Data:      result.Result.Data,
+			Log:       result.Result.Log,
+			Info:      result.Result.Info,
+			GasWanted: result.Result.GasWanted,
+			GasUsed:   result.Result.GasUsed,
+			Codespace: result.Result.Codespace,
+		},
+	}
+
+	for _, ev := range result.Result.Events {
+		tx.Result.Events = append(tx.Result.Events, mapEvent(ev))
+	}
+
+	marshaledTx, err := proto.Marshal(tx)
 	if err != nil {
 		return err
 	}
 
 	sync.Lock()
 	defer sync.Unlock()
-
 	_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s\n",
 		dmTx,
 		result.Height,
 		result.Index,
-		base64.StdEncoding.EncodeToString(rawBytes),
+		base64.StdEncoding.EncodeToString(marshaledTx),
 	))
 
 	return err
