@@ -11,20 +11,21 @@ import (
 	"sync"
 	"time"
 
+	//	cc "github.com/figment-networks/extractor-tendermint/codec"
+	"github.com/figment-networks/tendermint-protobuf-def/codec"
 	"github.com/golang/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/service"
+	"github.com/tendermint/tendermint/proto/tendermint/crypto"
 	"github.com/tendermint/tendermint/types"
 )
 
 const (
 	subscriberName = "ExtractorService"
 
-	dmPrefix     = "DMLOG "
-	dmBlock      = dmPrefix + "BLOCK"
-	dmBeginEvent = dmPrefix + "BLOCK_BEGIN_EVENT"
-	dmEndEvent   = dmPrefix + "BLOCK_END_EVENT"
-	dmTx         = dmPrefix + "TX"
+	dmPrefix = "DMLOG "
+	dmBlock  = dmPrefix + "BLOCK"
+	dmTx     = dmPrefix + "TX"
 )
 
 var (
@@ -73,13 +74,53 @@ func (ex *ExtractorService) OnStart() error {
 		return err
 	}
 
+	// voteSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataVote)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// roundStateSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataRoundState)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// newRoundSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataNewRound)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// completePropSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataCompleteProposal)
+	// if err != nil {
+	// 	return err
+	// }
+
+	valSetUpdatesSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryValidatorSetUpdates)
+	if err != nil {
+		return err
+	}
+
+	// stringSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataString)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// blockSyncStatusSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataBlockSyncStatus)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// stateSyncStatusSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataStateSyncStatus)
+	// if err != nil {
+	// 	return err
+	// }
+
 	writer, err := ex.initStreamOutput()
 	if err != nil {
 		ex.Logger.Error("stream output init failed", "err", err)
 		return err
 	}
 
-	go ex.listen(writer, blockSub, txsSub)
+	go ex.listen(writer, blockSub, txsSub, valSetUpdatesSub)
 
 	return nil
 }
@@ -97,12 +138,12 @@ func (ex *ExtractorService) OnStop() {
 	}
 }
 
-func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub types.Subscription) {
+func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesSub types.Subscription) {
 	sync := &sync.Mutex{}
 
 	for {
-		msg := <-blockSub.Out()
-		eventData := msg.Data().(types.EventDataNewBlock)
+		blockMsg := <-blockSub.Out()
+		eventData := blockMsg.Data().(types.EventDataNewBlock)
 		height := eventData.Block.Header.Height
 
 		// Skip extraction on unwanted heights
@@ -111,6 +152,7 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub types.Subscript
 			ex.Logger.Info("skipped block", "height", height)
 			continue
 		}
+		// we need to drain all
 
 		if err := indexBlock(w, sync, eventData); err != nil {
 			ex.drainSubscription(txsSub, len(eventData.Block.Txs))
@@ -130,6 +172,14 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub types.Subscript
 				ex.Logger.Debug("indexed block txs", "height", height)
 			}
 		}
+
+		// not sure how we approach this because its gonna be a repeat
+		// valSetMsg := <-valSetUpdatesSub.Out()
+		// validatorData := valSetMsg.Data()
+		// validator := validatorData.(codec.EventDataValidatorSetUpdates).ValidatorUpdates
+
+		// ex.Logger.Info("Validator Set Update", "validator", validator)
+
 	}
 }
 
@@ -180,84 +230,239 @@ func (ex *ExtractorService) initStreamOutput() (io.Writer, error) {
 }
 
 func indexTX(out io.Writer, sync *sync.Mutex, result *abci.TxResult) error {
-	rawBytes, err := proto.Marshal(result)
+	tx := &codec.TxResult{
+		Height: uint64(result.Height),
+		Index:  result.Index,
+		Tx:     result.Tx,
+		Result: &codec.ResponseDeliverTx{
+			Code:      result.Result.Code,
+			Data:      result.Result.Data,
+			Log:       result.Result.Log,
+			Info:      result.Result.Info,
+			GasWanted: result.Result.GasWanted,
+			GasUsed:   result.Result.GasUsed,
+			Codespace: result.Result.Codespace,
+		},
+	}
+
+	for _, ev := range result.Result.Events {
+		tx.Result.Events = append(tx.Result.Events, mapEvent(ev))
+	}
+
+	marshaledTx, err := proto.Marshal(tx)
 	if err != nil {
 		return err
 	}
 
 	sync.Lock()
 	defer sync.Unlock()
-
 	_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s\n",
 		dmTx,
 		result.Height,
 		result.Index,
-		base64.StdEncoding.EncodeToString(rawBytes),
+		base64.StdEncoding.EncodeToString(marshaledTx),
 	))
 
 	return err
 }
 
 func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error {
-	blockP, err := bh.Block.ToProto()
+	nb := &codec.EventDataNewBlock{
+		Block: &codec.Block{
+			Header: &codec.Header{
+				Version: &codec.Consensus{
+					Block: bh.Block.Header.Version.Block,
+					App:   bh.Block.Header.Version.App,
+				},
+				ChainId: bh.Block.Header.ChainID,
+				Height:  uint64(bh.Block.Header.Height),
+				Time: &codec.Timestamp{
+					Seconds: bh.Block.Header.Time.Unix(),
+					Nanos:   0, // TODO(lukanus): do it properly
+				},
+				LastBlockId:        mapBlockID(bh.Block.LastBlockID),
+				LastCommitHash:     bh.Block.Header.LastCommitHash,
+				DataHash:           bh.Block.Header.DataHash,
+				ValidatorsHash:     bh.Block.Header.ValidatorsHash,
+				NextValidatorsHash: bh.Block.Header.NextValidatorsHash,
+				ConsensusHash:      bh.Block.Header.ConsensusHash,
+				AppHash:            bh.Block.Header.AppHash,
+				LastResultsHash:    bh.Block.Header.LastResultsHash,
+				EvidenceHash:       bh.Block.Header.EvidenceHash,
+				ProposerAddress:    bh.Block.Header.ProposerAddress,
+			},
+			LastCommit: &codec.Commit{
+				Height:     uint64(bh.Block.LastCommit.Height),
+				Round:      bh.Block.LastCommit.Round,
+				BlockId:    mapBlockID(bh.Block.LastCommit.BlockID),
+				Signatures: []*codec.CommitSig{}, // TODO(lukanus): do it properly
+			},
+		},
+	}
+
+	// (lukanus): need to construct block id ... somehow
+	nb.BlockId = &codec.BlockID{
+		Hash: bh.Block.Header.DataHash, // (lukanus): is this the same as hash?
+		/*		PartSetHeader: &codec.PartSetHeader{
+				Total: bid.PartSetHeader.Total,        not sure where to get it ?
+				Hash:  bid.PartSetHeader.Hash,
+			},*/
+	}
+
+	if len(bh.Block.Data.Txs) > 0 {
+		nb.Block.Data = &codec.Data{}
+		for _, tx := range bh.Block.Data.Txs {
+			nb.Block.Data.Txs = append(nb.Block.Data.Txs, tx)
+		}
+	}
+
+	if len(bh.Block.Evidence.Evidence) > 0 {
+		nb.Block.Evidence = &codec.EvidenceList{}
+		for _, ev := range bh.Block.Evidence.Evidence {
+
+			newEv := &codec.Evidence{}
+			switch evN := ev.(type) {
+			case *types.DuplicateVoteEvidence:
+				newEv.Sum = &codec.Evidence_DuplicateVoteEvidence{
+					DuplicateVoteEvidence: &codec.DuplicateVoteEvidence{
+						VoteA:            mapVote(evN.VoteA),
+						VoteB:            mapVote(evN.VoteB),
+						TotalVotingPower: evN.TotalVotingPower,
+						ValidatorPower:   evN.ValidatorPower,
+						Timestamp: &codec.Timestamp{
+							Seconds: evN.Timestamp.Unix(),
+							Nanos:   0, // TODO(lukanus): do it properly
+						},
+					},
+				}
+			case *types.LightClientAttackEvidence:
+				newEv.Sum = &codec.Evidence_LightClientAttackEvidence{
+					LightClientAttackEvidence: &codec.LightClientAttackEvidence{
+						ConflictingBlock: &codec.LightBlock{
+							SignedHeader: &codec.SignedHeader{}, // TODO(lukanus): do it properly
+							ValidatorSet: &codec.ValidatorSet{}, // TODO(lukanus): do it properly
+						},
+						CommonHeight:        evN.CommonHeight,
+						ByzantineValidators: []*codec.Validator{}, // TODO(lukanus): do it properly
+						TotalVotingPower:    evN.TotalVotingPower,
+						Timestamp: &codec.Timestamp{
+							Seconds: evN.Timestamp.Unix(),
+							Nanos:   0, // TODO(lukanus): do it properly
+						},
+					},
+				}
+			default:
+				return fmt.Errorf("given type %T of EvidenceList mapping doesn't exist ", ev)
+			}
+
+			nb.Block.Evidence.Evidence = append(nb.Block.Evidence.Evidence, newEv)
+		}
+	}
+
+	if len(bh.ResultBeginBlock.Events) > 0 {
+		nb.ResultBeginBlock = &codec.ResponseBeginBlock{}
+		for _, ev := range bh.ResultBeginBlock.Events {
+			nb.ResultBeginBlock.Events = append(nb.ResultBeginBlock.Events, mapEvent(ev))
+		}
+	}
+
+	if len(bh.ResultEndBlock.Events) > 0 || len(bh.ResultEndBlock.ValidatorUpdates) > 0 || bh.ResultEndBlock.ConsensusParamUpdates != nil {
+		nb.ResultEndBlock = &codec.ResponseEndBlock{
+			ConsensusParamUpdates: &codec.ConsensusParams{},
+		}
+
+		for _, ev := range bh.ResultEndBlock.Events {
+			nb.ResultEndBlock.Events = append(nb.ResultEndBlock.Events, mapEvent(ev))
+		}
+
+		for _, v := range bh.ResultEndBlock.ValidatorUpdates {
+			val, err := mapValidator(v)
+			if err != nil {
+				return err
+			}
+			nb.ResultEndBlock.ValidatorUpdates = append(nb.ResultEndBlock.ValidatorUpdates, val)
+		}
+	}
+
+	marshaledBlock, err := proto.Marshal(nb)
 	if err != nil {
 		return err
 	}
-
-	marshaledBlock, err := blockP.Marshal()
-	if err != nil {
-		return err
-	}
-
 	sync.Lock()
 	defer sync.Unlock()
-
 	_, err = fmt.Fprintf(out, "%s %d %d %s\n",
 		dmBlock,
 		bh.Block.Header.Height,
 		bh.Block.Header.Time.UnixMilli(),
 		base64.StdEncoding.EncodeToString(marshaledBlock),
 	)
-	if err != nil {
-		return err
-	}
-
-	for i, ev := range bh.ResultBeginBlock.Events {
-		attrs := attributesString(ev.Attributes)
-		_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s\n", dmBeginEvent, bh.Block.Header.Height, i, ev.Type, attrs))
-		if err != nil {
-			return err
-		}
-	}
-
-	for i, ev := range bh.ResultEndBlock.Events {
-		attrs := attributesString(ev.Attributes)
-		_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s\n", dmEndEvent, bh.Block.Header.Height, i, ev.Type, attrs))
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func attributesString(attrs []abci.EventAttribute) string {
-	out := strings.Builder{}
-
-	for _, at := range attrs {
-		out.WriteString("@@")
-		out.Write(at.Key)
-		out.WriteString(":")
-		out.Write(at.Value)
-	}
-
-	return out.String()
+ 
+	return err
 }
 
 func formatFilename(name string) string {
 	now := time.Now().UTC()
 	for format, val := range timeFormats {
-		name = strings.Replace(name, format, now.Format(val), -1)
+		name = strings.Replace(name, format, now.Format(val), -1)  
 	}
 	return name
+}
+
+func mapBlockID(bid types.BlockID) *codec.BlockID {
+	return &codec.BlockID{
+		Hash: bid.Hash,
+		PartSetHeader: &codec.PartSetHeader{
+			Total: bid.PartSetHeader.Total,
+			Hash:  bid.PartSetHeader.Hash,
+		},
+	}
+}
+
+func mapEvent(ev abci.Event) *codec.Event {
+	cev := &codec.Event{Eventtype: ev.Type}
+
+	for _, at := range ev.Attributes {
+		cev.Attributes = append(cev.Attributes, &codec.EventAttribute{
+			Key:   string(at.Key),
+			Value: string(at.Value),
+			Index: at.Index,
+		})
+	}
+	return cev
+}
+
+func mapVote(edv *types.Vote) *codec.EventDataVote {
+	return &codec.EventDataVote{
+		Eventvotetype: codec.SignedMsgType(edv.Type),
+		Height:        uint64(edv.Height),
+		Round:         edv.Round,
+		BlockId:       mapBlockID(edv.BlockID),
+		Timestamp: &codec.Timestamp{
+			Seconds: edv.Timestamp.Unix(),
+			Nanos:   0, // TODO(lukanus): do it properly
+		},
+		ValidatorAddress: edv.ValidatorAddress,
+		ValidatorIndex:   edv.ValidatorIndex,
+		Signature:        edv.Signature,
+	}
+}
+
+func mapValidator(v abci.ValidatorUpdate) (*codec.Validator, error) {
+
+	nPK := &codec.PublicKey{}
+	switch key := v.PubKey.Sum.(type) {
+	case *crypto.PublicKey_Ed25519:
+		nPK.Sum = &codec.PublicKey_Ed25519{Ed25519: key.Ed25519}
+	case *crypto.PublicKey_Secp256K1:
+		nPK.Sum = &codec.PublicKey_Secp256K1{Secp256K1: key.Secp256K1}
+	default:
+		return nil, fmt.Errorf("given type %T of PubKey mapping doesn't exist ", key)
+	}
+
+	return &codec.Validator{
+		Address:          nil, // TODO(lukanus):  figure out what's up with that
+		PubKey:           nPK,
+		VotingPower:      v.Power,
+		ProposerPriority: 0, // TODO(lukanus):  figure out what's up with that
+	}, nil
 }
