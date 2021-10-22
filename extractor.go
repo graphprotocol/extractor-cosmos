@@ -11,7 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"codec.proto"
+	//	cc "github.com/figment-networks/extractor-tendermint/codec"
+
+	"github.com/figment-networks/extractor-tendermint/codec"
 	"github.com/golang/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/service"
@@ -21,11 +23,9 @@ import (
 const (
 	subscriberName = "ExtractorService"
 
-	dmPrefix     = "DMLOG "
-	dmBlock      = dmPrefix + "BLOCK"
-	dmBeginEvent = dmPrefix + "BLOCK_BEGIN_EVENT"
-	dmEndEvent   = dmPrefix + "BLOCK_END_EVENT"
-	dmTx         = dmPrefix + "TX"
+	dmPrefix = "DMLOG "
+	dmBlock  = dmPrefix + "BLOCK"
+	dmTx     = dmPrefix + "TX"
 )
 
 var (
@@ -64,12 +64,12 @@ func (ex *ExtractorService) OnStart() error {
 		return err
 	}
 
-	blockSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, codec.EventDataNewBlock)
+	blockSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryNewBlock)
 	if err != nil {
 		return err
 	}
 
-	txsSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, codec.EventDataTx)
+	txsSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryTx)
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func (ex *ExtractorService) OnStart() error {
 	// 	return err
 	// }
 
-	valSetUpdatesSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, codec.EventDataValidatorSetUpdates)
+	valSetUpdatesSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryValidatorSetUpdates)
 	if err != nil {
 		return err
 	}
@@ -120,7 +120,7 @@ func (ex *ExtractorService) OnStart() error {
 		return err
 	}
 
-	go ex.listen(writer, blockSub, txsSub, voteSub, valSetUpdatesSub)
+	go ex.listen(writer, blockSub, txsSub, valSetUpdatesSub)
 
 	return nil
 }
@@ -137,12 +137,12 @@ func (ex *ExtractorService) OnStop() {
 	}
 }
 
-func (ex *ExtractorService) listen(w io.Writer, blockSub, evidenceSub, txsSub, voteSub, valSetUpdatesSub types.Subscription) {
+func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesSub types.Subscription) {
 	sync := &sync.Mutex{}
 
 	for {
 		blockMsg := <-blockSub.Out()
-		eventData := blockMsg.Data().(codec.EventDataNewBlock)
+		eventData := blockMsg.Data().(types.EventDataNewBlock)
 		height := eventData.Block.Header.Height
 
 		// Skip extraction on unwanted heights
@@ -169,16 +169,6 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, evidenceSub, txsSub, v
 				ex.Logger.Error("failed to index block txs", "height", height, "err", err)
 			} else {
 				ex.Logger.Debug("indexed block txs", "height", height)
-			}
-		}
-
-		for i := 0; i < len(eventData.Block.Header.evidence); i++ {
-			evidenceRslt := eventData.Block.EvidenceList.(proto.Evidence)
-
-			if err != nil {
-				ex.Logger.Error("failed to index evidence ", "height", height, "err", err)
-			} else {
-				ex.Logger.Debug("indexed evidence", "height", height)
 			}
 		}
 
@@ -257,63 +247,33 @@ func indexTX(out io.Writer, sync *sync.Mutex, result *abci.TxResult) error {
 }
 
 func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error {
-	blockP, err := bh.Block.ToProto()
-	if err != nil {
-		return err
+
+	nb := codec.EventDataNewBlock{
+		Block:            &codec.Block{
+			Header:     &codec.Header{
+				Version:            &codec.Consensus{},
+				ChainId:            bh.Block.Header.ChainID,
+				Height:             uint64(bh.Block.Header.Height),
+				Time:               &codec.Timestamp{},
+				LastBlockId:        &codec.BlockID{},
+				LastCommitHash:     []byte{},
+				DataHash:           []byte{},
+				ValidatorsHash:     []byte{},
+				NextValidatorsHash: []byte{},
+				ConsensusHash:      []byte{},
+				AppHash:            []byte{},
+				LastResultsHash:    []byte{},
+				EvidenceHash:       []byte{},
+				ProposerAddress:    []byte{},
+			},
+			Data:       &codec.Data{},
+			Evidence:   &codec.EvidenceList{},
+			LastCommit: &codec.Commit{},
+		},
+		BlockId:          &codec.BlockID{},
+		ResultBeginBlock: &codec.ResponseBeginBlock{},
+		ResultEndBlock:   &codec.ResponseEndBlock{},
 	}
-
-	marshaledBlock, err := blockP.Marshal()
-	if err != nil {
-		return err
-	}
-
-	sync.Lock()
-	defer sync.Unlock()
-
-	_, err = fmt.Fprintf(out, "%s %d %d %s\n",
-		dmBlock,
-		bh.Block.Header.Height,
-		bh.Block.Header.Time.UnixMilli(),
-		base64.StdEncoding.EncodeToString(marshaledBlock),
-	)
-	if err != nil {
-		return err
-	}
-
-	// this can be removed
-	// for i, ev := range bh.ResultBeginBlock.Events {
-	// 	attrs := attributesString(ev.Attributes)
-	// 	_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s \n", dmBeginEvent, bh.Block.Header.Height, i, ev.Type, attrs))
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// }
-
-	// for i, ev := range bh.ResultEndBlock.Events {
-	// 	attrs := attributesString(ev.Attributes)
-	// 	_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s %s \n", dmEndEvent, bh.Block.Header.Height, i, ev.Type, attrs))
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// }
-
-	return nil
-}
-
-// may not be needed either
-
-// func attributesString(attrs []abci.EventAttribute) string {
-// 	out := strings.Builder{}
-
-// 	for _, at := range attrs {
-// 		out.WriteString("@@")
-// 		out.Write(at.Key)
-// 		out.WriteString(":")
-// 		out.Write(at.Value)
-// 	}
-
-// 	return out.String()
-// }
 
 func formatFilename(name string) string {
 	now := time.Now().UTC()

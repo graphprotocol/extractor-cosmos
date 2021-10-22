@@ -4,7 +4,7 @@
 // 	protoc        v3.17.3
 // source: codec.proto
 
-package fig_tendermint_codecs
+package codec
 
 import (
 	_ "github.com/gogo/protobuf/gogoproto"
