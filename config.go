@@ -6,11 +6,11 @@ import (
 
 // Config declares extractor service configuration options
 type Config struct {
-	Enabled     bool
-	RootDir     string
-	OutputFile  string
-	StartHeight int64
-	EndHeight   int64
+	RootDir     string `mapstructure:"home"`
+	Enabled     bool   `mapstructure:"enabled"`
+	OutputFile  string `mapstructure:"output_file"`
+	StartHeight int64  `mapstructure:"start_height"`
+	EndHeight   int64  `mapstructure:"end_height"`
 }
 
 // DefaultConfig returns a default extractor config
