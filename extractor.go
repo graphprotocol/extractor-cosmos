@@ -291,7 +291,9 @@ func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) err
 				AppHash:            bh.Block.Header.AppHash,
 				LastResultsHash:    bh.Block.Header.LastResultsHash,
 				EvidenceHash:       bh.Block.Header.EvidenceHash,
-				ProposerAddress:    bh.Block.Header.ProposerAddress,
+				ProposerAddress: &codec.Address{
+					Address: bh.Block.Header.ProposerAddress,
+				},
 			},
 			LastCommit: &codec.Commit{
 				Height:     uint64(bh.Block.LastCommit.Height),
@@ -443,9 +445,11 @@ func mapVote(edv *types.Vote) *codec.EventDataVote {
 			Seconds: edv.Timestamp.Unix(),
 			Nanos:   0, // TODO(lukanus): do it properly
 		},
-		ValidatorAddress: edv.ValidatorAddress,
-		ValidatorIndex:   edv.ValidatorIndex,
-		Signature:        edv.Signature,
+		ValidatorAddress: &codec.Address{
+			Address: edv.ValidatorAddress,
+		},
+		ValidatorIndex: edv.ValidatorIndex,
+		Signature:      edv.Signature,
 	}
 }
 
