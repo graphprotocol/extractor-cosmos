@@ -2,14 +2,34 @@ package extractor
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/libs/pubsub"
 	"github.com/tendermint/tendermint/types"
 )
+
+func TestExtractorInitOutput(t *testing.T) {
+	ex := NewExtractorService(nil, &Config{})
+	writer, err := ex.initStreamOutput()
+	assert.NoError(t, err)
+	assert.Equal(t, os.Stdout, writer)
+
+	ex = NewExtractorService(nil, &Config{OutputFile: "STDERR"})
+	writer, err = ex.initStreamOutput()
+	assert.NoError(t, err)
+	assert.Equal(t, os.Stderr, writer)
+
+	ex = NewExtractorService(nil, &Config{OutputFile: fmt.Sprintf("/tmp/%v", time.Now().Unix())})
+	writer, err = ex.initStreamOutput()
+	assert.NoError(t, err)
+	assert.IsType(t, &os.File{}, writer)
+}
 
 func TestIndexBlock(t *testing.T) {
 	examples := []struct {
@@ -151,4 +171,37 @@ func TestFormatFilename(t *testing.T) {
 	for _, ex := range examples {
 		assert.Equal(t, ex.expected, formatFilename(ex.input))
 	}
+}
+
+type mockSubscription struct {
+	data     []pubsub.Message
+	messages chan pubsub.Message
+}
+
+func (s mockSubscription) Out() <-chan pubsub.Message {
+	go func() {
+		for _, msg := range s.data {
+			s.messages <- msg
+		}
+	}()
+	return s.messages
+}
+
+func (s mockSubscription) Cancelled() <-chan struct{} {
+	return nil
+}
+
+func (s mockSubscription) Err() error {
+	return nil
+}
+
+func TestExtractorDrainSubscription(t *testing.T) {
+	sub := mockSubscription{
+		messages: make(chan pubsub.Message),
+		data:     []pubsub.Message{{}, {}, {}, {}},
+	}
+
+	ex := NewExtractorService(nil, &Config{})
+	err := ex.drainSubscription(sub, 3)
+	assert.NoError(t, err)
 }

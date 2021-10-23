@@ -188,10 +188,11 @@ func (ex *ExtractorService) shouldSkipHeight(height int64) bool {
 		ex.config.EndHeight > 0 && height > ex.config.EndHeight
 }
 
-func (ex *ExtractorService) drainSubscription(sub types.Subscription, n int) {
+func (ex *ExtractorService) drainSubscription(sub types.Subscription, n int) error {
 	for i := 0; i < n; i++ {
 		<-sub.Out()
 	}
+	return nil
 }
 
 func (ex *ExtractorService) initStreamOutput() (io.Writer, error) {
@@ -201,7 +202,7 @@ func (ex *ExtractorService) initStreamOutput() (io.Writer, error) {
 	)
 
 	switch ex.config.OutputFile {
-	case "stdout", "STDOUT":
+	case "", "stdout", "STDOUT":
 		writer = os.Stdout
 		outputFile = "STDOUT"
 	case "stderr", "STDERR":

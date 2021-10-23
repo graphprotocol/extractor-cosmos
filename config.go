@@ -21,7 +21,10 @@ func DefaultConfig() *Config {
 	}
 }
 
-func (c Config) Validate() error {
+func (c *Config) Validate() error {
+	if c.OutputFile == "" {
+		c.OutputFile = "STDOUT"
+	}
 	if c.Enabled && c.OutputFile == "" {
 		return errors.New("output file is not provided")
 	}
