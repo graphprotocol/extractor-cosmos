@@ -2,7 +2,6 @@ package extractor
 
 import (
 	"bytes"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,10 +18,6 @@ func TestIndexBlock(t *testing.T) {
 		err      string
 	}{
 		{
-			input: types.EventDataNewBlock{},
-			err:   "nil Block",
-		},
-		{
 			input: types.EventDataNewBlock{
 				Block: &types.Block{
 					Header: types.Header{
@@ -30,9 +25,18 @@ func TestIndexBlock(t *testing.T) {
 						Height:  1,
 						Time:    time.Unix(1634674166, 0),
 					},
+					LastCommit: &types.Commit{
+						BlockID: types.BlockID{
+							Hash: []byte{},
+							PartSetHeader: types.PartSetHeader{
+								Total: 1,
+								Hash:  []byte{},
+							},
+						},
+					},
 				},
 			},
-			expected: "DMLOG BLOCK 1 1634674166000 ChoKABIIY2hhaW4taWQYASIGCPbLvIsGKgISABIAGgA=\n",
+			expected: "DMLOG BLOCK 1 1634674166000 CiYKHAoAEghjaGFpbi1pZBgBIgYI9su8iwYqAhIAcgAiBhoEEgIIARIA\n",
 		},
 		{
 			input: types.EventDataNewBlock{
@@ -41,6 +45,15 @@ func TestIndexBlock(t *testing.T) {
 						ChainID: "chain-id",
 						Height:  2,
 						Time:    time.Unix(1634674166, 0),
+					},
+					LastCommit: &types.Commit{
+						BlockID: types.BlockID{
+							Hash: []byte{},
+							PartSetHeader: types.PartSetHeader{
+								Total: 1,
+								Hash:  []byte{},
+							},
+						},
 					},
 				},
 				ResultBeginBlock: abci.ResponseBeginBlock{
@@ -76,13 +89,7 @@ func TestIndexBlock(t *testing.T) {
 					},
 				},
 			},
-			expected: strings.Join([]string{
-				"DMLOG BLOCK 2 1634674166000 ChoKABIIY2hhaW4taWQYAiIGCPbLvIsGKgISABIAGgA=",
-				"DMLOG BLOCK_BEGIN_EVENT 2 0 eventType1 @@key1:value1",
-				"DMLOG BLOCK_BEGIN_EVENT 2 1 eventType2 @@key1:value1",
-				"DMLOG BLOCK_END_EVENT 2 0 eventType1 @@key1:value1",
-				"DMLOG BLOCK_END_EVENT 2 1 eventType2 @@key1:value1",
-			}, "\n") + "\n",
+			expected: "DMLOG BLOCK 2 1634674166000 CiYKHAoAEghjaGFpbi1pZBgCIgYI9su8iwYqAhIAcgAiBhoEEgIIARIAGjwKHAoKZXZlbnRUeXBlMRIOCgRrZXkxEgZ2YWx1ZTEKHAoKZXZlbnRUeXBlMhIOCgRrZXkxEgZ2YWx1ZTEiPhIAGhwKCmV2ZW50VHlwZTESDgoEa2V5MRIGdmFsdWUxGhwKCmV2ZW50VHlwZTISDgoEa2V5MRIGdmFsdWUx\n",
 		},
 	}
 
@@ -106,7 +113,7 @@ func TestIndexTx(t *testing.T) {
 	}{
 		{
 			input:    &abci.TxResult{},
-			expected: "DMLOG TX 0 0 IgA=\n",
+			expected: "DMLOG TX 0 0 CgIiAA==\n",
 		},
 		{
 			input: &abci.TxResult{
@@ -114,7 +121,7 @@ func TestIndexTx(t *testing.T) {
 				Height: 1000,
 				Tx:     []byte("data"),
 			},
-			expected: "DMLOG TX 1000 0 COgHGgRkYXRhIgA=\n",
+			expected: "DMLOG TX 1000 0 CgsI6AcaBGRhdGEiAA==\n",
 		},
 	}
 
@@ -144,14 +151,4 @@ func TestFormatFilename(t *testing.T) {
 	for _, ex := range examples {
 		assert.Equal(t, ex.expected, formatFilename(ex.input))
 	}
-}
-
-func TestAttributesString(t *testing.T) {
-	/*	attrs := []abci.EventAttribute{
-			{Key: []byte("key1"), Value: []byte("value1")},
-			{Key: []byte("key2"), Value: []byte("value2")},
-			{Key: []byte("key3"), Value: []byte("value3")},
-		}
-	*/
-	//assert.Equal(t, "@@key1:value1@@key2:value2@@key3:value3", attributesString(attrs))
 }

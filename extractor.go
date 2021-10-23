@@ -432,6 +432,7 @@ func mapEvent(ev abci.Event) *codec.Event {
 			Index: at.Index,
 		})
 	}
+
 	return cev
 }
 
@@ -454,8 +455,8 @@ func mapVote(edv *types.Vote) *codec.EventDataVote {
 }
 
 func mapValidator(v abci.ValidatorUpdate) (*codec.Validator, error) {
-
 	nPK := &codec.PublicKey{}
+
 	switch key := v.PubKey.Sum.(type) {
 	case *crypto.PublicKey_Ed25519:
 		nPK.Sum = &codec.PublicKey_Ed25519{Ed25519: key.Ed25519}
