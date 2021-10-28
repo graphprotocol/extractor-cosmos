@@ -62,12 +62,18 @@ func (ex *ExtractorService) OnStart() error {
 		return err
 	}
 
+	valSetUpdatesSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryValidatorSetUpdates)
+	if err != nil {
+		return err
+	}
+
+	writer, err := ex.initStreamOutput()
 	if err := ex.initStreamOutput(); err != nil {
 		ex.Logger.Error("stream output init failed", "err", err)
 		return err
 	}
 
-	go ex.listen(blockSub, txsSub)
+	go ex.listen(writer, blockSub, txsSub, valSetUpdatesSub)
 
 	return nil
 }
@@ -85,40 +91,55 @@ func (ex *ExtractorService) OnStop() {
 	}
 }
 
-func (ex *ExtractorService) listen(blockSub, txsSub types.Subscription) {
+func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesSub types.Subscription) {
 	sync := &sync.Mutex{}
 
 	for {
-		blockMsg := <-blockSub.Out()
-		eventData := blockMsg.Data().(types.EventDataNewBlock)
-		height := eventData.Block.Header.Height
+		select {
+			case blockMsg := <-blockSub.Out():
+				eventData := blockMsg.Data().(types.EventDataNewBlock)
+				height := eventData.Block.Header.Height
 
-		// Skip extraction on unwanted heights
-		if ex.shouldSkipHeight(height) {
-			ex.drainSubscription(txsSub, len(eventData.Block.Txs))
-			ex.Logger.Info("skipped block", "height", height)
-			continue
+				// Skip extraction on unwanted heights
+				if ex.shouldSkipHeight(height) {
+					ex.drainSubscription(txsSub, len(eventData.Block.Txs))
+					ex.Logger.Info("skipped block", "height", height)
+					continue
+				}
+				// we need to drain all
+
+				if err := indexBlock(ex.writer, sync, eventData); err != nil {
+					ex.drainSubscription(txsSub, len(eventData.Block.Txs))
+					ex.Logger.Error("failed to index block", "height", height, "err", err)
+					continue
+				}
+
+				ex.Logger.Info("indexed block", "height", height)
+
+				for i := 0; i < len(eventData.Block.Txs); i++ {
+					txMsg := <-txsSub.Out()
+					txResult := txMsg.Data().(types.EventDataTx).TxResult
+
+					if err := indexTX(ex.writer, sync, &txResult); err != nil {
+						ex.Logger.Error("failed to index block txs", "height", height, "err", err)
+					} else {
+						ex.Logger.Debug("indexed block txs", "height", height)
+					}
+				}
+
+			case valSetMsg := <-valSetUpdatesSub.Out():
+				validatorSetData := valSetMsg.Data().(types.Validator)
+
+				if err := indexValSetUpdates(ex.writer, sync, validatorSetData); err != nil {
+						ex.Logger.Error("failed to index Validator Set Data", "err", err)
+					} else {
+						ex.Logger.Info("indexed Validator Set Info", validatorSetData)
+					}
+
+			default:
+				continue
 		}
-		// we need to drain all
 
-		if err := indexBlock(ex.writer, sync, eventData); err != nil {
-			ex.drainSubscription(txsSub, len(eventData.Block.Txs))
-			ex.Logger.Error("failed to index block", "height", height, "err", err)
-			continue
-		}
-
-		ex.Logger.Info("indexed block", "height", height)
-
-		for i := 0; i < len(eventData.Block.Txs); i++ {
-			txMsg := <-txsSub.Out()
-			txResult := txMsg.Data().(types.EventDataTx).TxResult
-
-			if err := indexTX(ex.writer, sync, &txResult); err != nil {
-				ex.Logger.Error("failed to index block txs", "height", height, "err", err)
-			} else {
-				ex.Logger.Debug("indexed block txs", "height", height)
-			}
-		}
 	}
 }
 
@@ -337,6 +358,36 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 		bh.Block.Header.Time.UnixMilli(),
 		base64.StdEncoding.EncodeToString(marshaledBlock),
 	))
+
+	return err
+}
+
+func indexValSetUpdates(out io.Writer, sync *sync.Mutex, vs types.Validator) error {
+	vOut := &codec.Validator{}
+
+	marshaledvout, err := proto.Marshal(vOut)
+	if err != nil {
+		return err
+	}
+
+	sync.Lock()
+	defer sync.Unlock()
+	_, err = io.WriteString(out, fmt.Sprintf("%s %d %s\n",
+		dmTx,
+		vs.Address,
+		base64.StdEncoding.EncodeToString(marshaledvout),
+	))
+
+	return err
+}
+
+
+func formatFilename(name string) string {
+	now := time.Now().UTC()
+	for format, val := range timeFormats {
+		name = strings.Replace(name, format, now.Format(val), -1)
+	}
+	return name
 }
 
 func mapBlockID(bid types.BlockID) *codec.BlockID {
