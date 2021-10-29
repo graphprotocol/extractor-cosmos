@@ -18,9 +18,10 @@ import (
 const (
 	subscriberName = "ExtractorService"
 
-	dmPrefix = "DMLOG "
-	dmBlock  = dmPrefix + "BLOCK"
-	dmTx     = dmPrefix + "TX"
+	dmPrefix    = "DMLOG "
+	dmBlock     = dmPrefix + "BLOCK"
+	dmTx        = dmPrefix + "TX"
+	dmValidator = dmPrefix + "VALIDATOR_SET_UPDATES"
 )
 
 type ExtractorService struct {
@@ -127,12 +128,12 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesS
 			}
 
 		case valSetMsg := <-valSetUpdatesSub.Out():
-			validatorSetData := valSetMsg.Data().(types.Validator)
+			setUpdates := valSetMsg.Data().(types.EventDataValidatorSetUpdates)
 
-			if err := indexValSetUpdates(w, sync, validatorSetData); err != nil {
+			if err := indexValSetUpdates(w, sync, &setUpdates); err != nil {
 				ex.Logger.Error("failed to index Validator Set Data", "err", err)
 			} else {
-				ex.Logger.Info("indexed Validator Set Info", validatorSetData)
+				ex.Logger.Info("indexed validator set updates", setUpdates)
 			}
 
 		default:
@@ -351,30 +352,43 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 	sync.Lock()
 	defer sync.Unlock()
 
-	return out.WriteLine(fmt.Sprintf("%s %d %d %s",
+	_, err = fmt.Fprintf(out, "%s %d %d %s\n",
 		dmBlock,
 		bh.Block.Header.Height,
 		bh.Block.Header.Time.UnixMilli(),
 		base64.StdEncoding.EncodeToString(marshaledBlock),
-	))
+	)
 
 	return err
 }
 
-func indexValSetUpdates(out io.Writer, sync *sync.Mutex, vs types.Validator) error {
-	vOut := &codec.Validator{}
+func indexValSetUpdates(out io.Writer, sync *sync.Mutex, updates *types.EventDataValidatorSetUpdates) error {
+	if len(updates.ValidatorUpdates) == 0 {
+		return nil
+	}
 
-	marshaledvout, err := proto.Marshal(vOut)
-	if err != nil {
-		return err
+	result := &codec.EventDataValidatorSetUpdates{}
+
+	for _, update := range updates.ValidatorUpdates {
+		result.ValidatorUpdates = append(result.ValidatorUpdates, &codec.Validator{
+			Address:     update.Address.Bytes(),
+			VotingPower: update.VotingPower,
+			// PubKey: ???,
+		})
 	}
 
 	sync.Lock()
 	defer sync.Unlock()
-	_, err = io.WriteString(out, fmt.Sprintf("%s %d %s\n",
-		dmTx,
-		vs.Address,
-		base64.StdEncoding.EncodeToString(marshaledvout),
+
+	data, err := proto.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("cant marshal validator: %v", err)
+	}
+
+	// dans: We need to add height prefix
+	_, err = io.WriteString(out, fmt.Sprintf("%s %s\n",
+		dmValidator,
+		base64.StdEncoding.EncodeToString(data),
 	))
 
 	return err
