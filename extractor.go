@@ -370,20 +370,32 @@ func indexValSetUpdates(out io.Writer, sync *sync.Mutex, updates *types.EventDat
 	result := &codec.EventDataValidatorSetUpdates{}
 
 	for _, update := range updates.ValidatorUpdates {
+		nPK := &codec.PublicKey{}
+
+		switch update.PubKey.Type() {
+		case "ed25519":
+			nPK.Sum = &codec.PublicKey_Ed25519{Ed25519: update.PubKey.Bytes()}
+		case "secp256k1":
+			nPK.Sum = &codec.PublicKey_Secp256K1{Secp256K1: update.PubKey.Bytes()}
+		default:
+			return fmt.Errorf("unsupported pubkey type: %T", update.PubKey)
+		}
+
 		result.ValidatorUpdates = append(result.ValidatorUpdates, &codec.Validator{
-			Address:     update.Address.Bytes(),
-			VotingPower: update.VotingPower,
-			// PubKey: ???,
+			Address:          update.Address.Bytes(),
+			VotingPower:      update.VotingPower,
+			ProposerPriority: update.ProposerPriority,
+			PubKey:           nPK,
 		})
 	}
-
-	sync.Lock()
-	defer sync.Unlock()
 
 	data, err := proto.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("cant marshal validator: %v", err)
 	}
+
+	sync.Lock()
+	defer sync.Unlock()
 
 	// dans: We need to add height prefix
 	_, err = io.WriteString(out, fmt.Sprintf("%s %s\n",
