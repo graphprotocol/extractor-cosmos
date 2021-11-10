@@ -10,6 +10,7 @@ import (
 	"github.com/figment-networks/tendermint-protobuf-def/codec"
 	"github.com/golang/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
+	tmcrypto "github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/proto/tendermint/crypto"
 	"github.com/tendermint/tendermint/types"
@@ -106,8 +107,8 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesS
 				ex.Logger.Info("skipped block", "height", height)
 				continue
 			}
-			// we need to drain all
 
+			// we need to drain all
 			if err := indexBlock(w, sync, eventData); err != nil {
 				ex.drainSubscription(txsSub, len(eventData.Block.Txs))
 				ex.Logger.Error("failed to index block", "height", height, "err", err)
@@ -132,8 +133,6 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesS
 
 			if err := indexValSetUpdates(w, sync, &setUpdates); err != nil {
 				ex.Logger.Error("failed to index Validator Set Data", "err", err)
-			} else {
-				ex.Logger.Info("indexed validator set updates", setUpdates)
 			}
 
 		default:
@@ -262,7 +261,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 
 	// (lukanus): need to construct block id ... somehow
 	nb.BlockId = &codec.BlockID{
-		Hash: bh.Block.Header.DataHash, // (lukanus): is this the same as hash?
+		Hash: bh.Block.Header.Hash(),
 		/*		PartSetHeader: &codec.PartSetHeader{
 				Total: bid.PartSetHeader.Total,        not sure where to get it ?
 				Hash:  bid.PartSetHeader.Hash,
@@ -398,11 +397,11 @@ func indexValSetUpdates(out io.Writer, sync *sync.Mutex, updates *types.EventDat
 	defer sync.Unlock()
 
 	// dans: We need to add height prefix
+	// Mark: Add a pointer and go that way, talk to Dan if needed
 	_, err = io.WriteString(out, fmt.Sprintf("%s %s\n",
 		dmValidator,
 		base64.StdEncoding.EncodeToString(data),
 	))
-
 	return err
 }
 
@@ -458,18 +457,21 @@ func mapVote(edv *types.Vote) *codec.EventDataVote {
 
 func mapValidator(v abci.ValidatorUpdate) (*codec.Validator, error) {
 	nPK := &codec.PublicKey{}
+	var Address []byte
 
 	switch key := v.PubKey.Sum.(type) {
 	case *crypto.PublicKey_Ed25519:
 		nPK.Sum = &codec.PublicKey_Ed25519{Ed25519: key.Ed25519}
+		Address = tmcrypto.AddressHash(nPK.GetEd25519())
 	case *crypto.PublicKey_Secp256K1:
 		nPK.Sum = &codec.PublicKey_Secp256K1{Secp256K1: key.Secp256K1}
+		Address = tmcrypto.AddressHash(nPK.GetSecp256K1())
 	default:
 		return nil, fmt.Errorf("given type %T of PubKey mapping doesn't exist ", key)
 	}
 
 	return &codec.Validator{
-		Address:          nil, // TODO(lukanus):  figure out what's up with that
+		Address:          Address,
 		PubKey:           nPK,
 		VotingPower:      v.Power,
 		ProposerPriority: 0, // TODO(lukanus):  figure out what's up with that
