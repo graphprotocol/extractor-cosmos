@@ -4,12 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
-	"time"
 
 	//	cc "github.com/figment-networks/extractor-tendermint/codec"
 	"github.com/figment-networks/tendermint-protobuf-def/codec"
@@ -28,20 +23,12 @@ const (
 	dmTx     = dmPrefix + "TX"
 )
 
-var (
-	timeFormats = map[string]string{
-		"$date": "20060102",
-		"$time": "150405",
-		"$ts":   "20060102-150405",
-	}
-)
-
 type ExtractorService struct {
 	service.BaseService
 
 	config   *Config
 	eventBus *types.EventBus
-	handle   io.Closer
+	writer   Writer
 }
 
 func NewExtractorService(eventBus *types.EventBus, config *Config) *ExtractorService {
@@ -74,53 +61,12 @@ func (ex *ExtractorService) OnStart() error {
 		return err
 	}
 
-	// voteSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataVote)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// roundStateSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataRoundState)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// newRoundSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataNewRound)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// completePropSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataCompleteProposal)
-	// if err != nil {
-	// 	return err
-	// }
-
-	/*	valSetUpdatesSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryValidatorSetUpdates)
-		if err != nil {
-			return err
-		}
-	*/
-	// stringSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataString)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// blockSyncStatusSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataBlockSyncStatus)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// stateSyncStatusSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventDataStateSyncStatus)
-	// if err != nil {
-	// 	return err
-	// }
-
-	writer, err := ex.initStreamOutput()
-	if err != nil {
+	if err := ex.initStreamOutput(); err != nil {
 		ex.Logger.Error("stream output init failed", "err", err)
 		return err
 	}
 
-	go ex.listen(writer, blockSub, txsSub)
+	go ex.listen(blockSub, txsSub)
 
 	return nil
 }
@@ -132,13 +78,13 @@ func (ex *ExtractorService) OnStop() {
 		}
 	}
 
-	if ex.handle != nil {
-		ex.Logger.Info("closing stream output", "dest", ex.config.OutputFile)
-		ex.handle.Close()
+	ex.Logger.Info("closing stream output", "dest", ex.config.OutputFile)
+	if err := ex.writer.Close(); err != nil {
+		ex.Logger.Error("failed to close stream writer", "err", err)
 	}
 }
 
-func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub types.Subscription) {
+func (ex *ExtractorService) listen(blockSub, txsSub types.Subscription) {
 	sync := &sync.Mutex{}
 
 	for {
@@ -154,7 +100,7 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub types.Subscript
 		}
 		// we need to drain all
 
-		if err := indexBlock(w, sync, eventData); err != nil {
+		if err := indexBlock(ex.writer, sync, eventData); err != nil {
 			ex.drainSubscription(txsSub, len(eventData.Block.Txs))
 			ex.Logger.Error("failed to index block", "height", height, "err", err)
 			continue
@@ -166,20 +112,12 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub types.Subscript
 			txMsg := <-txsSub.Out()
 			txResult := txMsg.Data().(types.EventDataTx).TxResult
 
-			if err := indexTX(w, sync, &txResult); err != nil {
+			if err := indexTX(ex.writer, sync, &txResult); err != nil {
 				ex.Logger.Error("failed to index block txs", "height", height, "err", err)
 			} else {
 				ex.Logger.Debug("indexed block txs", "height", height)
 			}
 		}
-
-		// not sure how we approach this because its gonna be a repeat
-		// valSetMsg := <-valSetUpdatesSub.Out()
-		// validatorData := valSetMsg.Data()
-		// validator := validatorData.(codec.EventDataValidatorSetUpdates).ValidatorUpdates
-
-		// ex.Logger.Info("Validator Set Update", "validator", validator)
-
 	}
 }
 
@@ -195,42 +133,20 @@ func (ex *ExtractorService) drainSubscription(sub types.Subscription, n int) err
 	return nil
 }
 
-func (ex *ExtractorService) initStreamOutput() (io.Writer, error) {
-	var (
-		writer     io.Writer
-		outputFile string
-	)
+func (ex *ExtractorService) initStreamOutput() error {
+	filename := ex.config.GetOutputFile()
 
-	switch ex.config.OutputFile {
-	case "", "stdout", "STDOUT":
-		writer = os.Stdout
-		outputFile = "STDOUT"
-	case "stderr", "STDERR":
-		writer = os.Stderr
-		outputFile = "STDERR"
-	default:
-		if strings.HasPrefix(ex.config.OutputFile, "/") {
-			outputFile = ex.config.OutputFile
-		} else {
-			outputFile = filepath.Join(ex.config.RootDir, ex.config.OutputFile)
-		}
-
-		outputFile = formatFilename(outputFile)
-		file, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_SYNC, 0666)
-		if err != nil {
-			return nil, err
-		}
-
-		ex.config.OutputFile = outputFile
-		ex.handle = file
-		writer = file
+	if ex.config.Bundle {
+		ex.writer = NewBundleWriter(filename, ex.config.BundleSize)
+	} else {
+		ex.writer = NewFileWriter(filename)
 	}
 
-	ex.Logger.Info("configured stream output", "dest", outputFile)
-	return writer, nil
+	ex.Logger.Info("configured stream output", "dest", filename)
+	return nil
 }
 
-func indexTX(out io.Writer, sync *sync.Mutex, result *abci.TxResult) error {
+func indexTX(out Writer, sync *sync.Mutex, result *abci.TxResult) error {
 	tx := &codec.EventDataTx{
 		TxResult: &codec.TxResult{
 			Height: uint64(result.Height),
@@ -259,17 +175,20 @@ func indexTX(out io.Writer, sync *sync.Mutex, result *abci.TxResult) error {
 
 	sync.Lock()
 	defer sync.Unlock()
-	_, err = io.WriteString(out, fmt.Sprintf("%s %d %d %s\n",
+
+	return out.WriteLine(fmt.Sprintf("%s %d %d %s",
 		dmTx,
 		result.Height,
 		result.Index,
 		base64.StdEncoding.EncodeToString(marshaledTx),
 	))
-
-	return err
 }
 
-func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error {
+func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error {
+	if err := out.SetHeight(int(bh.Block.Height)); err != nil {
+		return err
+	}
+
 	nb := &codec.EventDataNewBlock{
 		Block: &codec.Block{
 			Header: &codec.Header{
@@ -393,24 +312,16 @@ func indexBlock(out io.Writer, sync *sync.Mutex, bh types.EventDataNewBlock) err
 	if err != nil {
 		return err
 	}
+
 	sync.Lock()
 	defer sync.Unlock()
-	_, err = fmt.Fprintf(out, "%s %d %d %s\n",
+
+	return out.WriteLine(fmt.Sprintf("%s %d %d %s",
 		dmBlock,
 		bh.Block.Header.Height,
 		bh.Block.Header.Time.UnixMilli(),
 		base64.StdEncoding.EncodeToString(marshaledBlock),
-	)
-
-	return err
-}
-
-func formatFilename(name string) string {
-	now := time.Now().UTC()
-	for format, val := range timeFormats {
-		name = strings.Replace(name, format, now.Format(val), -1)
-	}
-	return name
+	))
 }
 
 func mapBlockID(bid types.BlockID) *codec.BlockID {
