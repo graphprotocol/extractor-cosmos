@@ -127,6 +127,11 @@ output_file = "extractor.log"
 # output_file = "extractor-$date.log"
 # output_file = "extractor-$ts.log"
 
+# We can also bundle block data per file
+bundle = true
+bundle_size = 1000 # each file will include data for 1k blocks/heights
+# output file will be "output_file.log.0000000000" and so on
+
 # Height range filtering
 # start_height = 100
 # end_height = 200
