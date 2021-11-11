@@ -7,7 +7,6 @@ import (
 	"os"
 	"sync"
 
-	//	cc "github.com/figment-networks/extractor-tendermint/codec"
 	"github.com/figment-networks/tendermint-protobuf-def/codec"
 	"github.com/golang/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -96,48 +95,48 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesS
 
 	for {
 		select {
-			case blockMsg := <-blockSub.Out():
-				eventData := blockMsg.Data().(types.EventDataNewBlock)
-				height := eventData.Block.Header.Height
+		case blockMsg := <-blockSub.Out():
+			eventData := blockMsg.Data().(types.EventDataNewBlock)
+			height := eventData.Block.Header.Height
 
-				// Skip extraction on unwanted heights
-				if ex.shouldSkipHeight(height) {
-					ex.drainSubscription(txsSub, len(eventData.Block.Txs))
-					ex.Logger.Info("skipped block", "height", height)
-					continue
-				}
-				// we need to drain all
-
-				if err := indexBlock(ex.writer, sync, eventData); err != nil {
-					ex.drainSubscription(txsSub, len(eventData.Block.Txs))
-					ex.Logger.Error("failed to index block", "height", height, "err", err)
-					continue
-				}
-
-				ex.Logger.Info("indexed block", "height", height)
-
-				for i := 0; i < len(eventData.Block.Txs); i++ {
-					txMsg := <-txsSub.Out()
-					txResult := txMsg.Data().(types.EventDataTx).TxResult
-
-					if err := indexTX(ex.writer, sync, &txResult); err != nil {
-						ex.Logger.Error("failed to index block txs", "height", height, "err", err)
-					} else {
-						ex.Logger.Debug("indexed block txs", "height", height)
-					}
-				}
-
-			case valSetMsg := <-valSetUpdatesSub.Out():
-				validatorSetData := valSetMsg.Data().(types.Validator)
-
-				if err := indexValSetUpdates(ex.writer, sync, validatorSetData); err != nil {
-						ex.Logger.Error("failed to index Validator Set Data", "err", err)
-					} else {
-						ex.Logger.Info("indexed Validator Set Info", validatorSetData)
-					}
-
-			default:
+			// Skip extraction on unwanted heights
+			if ex.shouldSkipHeight(height) {
+				ex.drainSubscription(txsSub, len(eventData.Block.Txs))
+				ex.Logger.Info("skipped block", "height", height)
 				continue
+			}
+			// we need to drain all
+
+			if err := indexBlock(w, sync, eventData); err != nil {
+				ex.drainSubscription(txsSub, len(eventData.Block.Txs))
+				ex.Logger.Error("failed to index block", "height", height, "err", err)
+				continue
+			}
+
+			ex.Logger.Info("indexed block", "height", height)
+
+			for i := 0; i < len(eventData.Block.Txs); i++ {
+				txMsg := <-txsSub.Out()
+				txResult := txMsg.Data().(types.EventDataTx).TxResult
+
+				if err := indexTX(w, sync, &txResult); err != nil {
+					ex.Logger.Error("failed to index block txs", "height", height, "err", err)
+				} else {
+					ex.Logger.Debug("indexed block txs", "height", height)
+				}
+			}
+
+		case valSetMsg := <-valSetUpdatesSub.Out():
+			validatorSetData := valSetMsg.Data().(types.Validator)
+
+			if err := indexValSetUpdates(w, sync, validatorSetData); err != nil {
+				ex.Logger.Error("failed to index Validator Set Data", "err", err)
+			} else {
+				ex.Logger.Info("indexed Validator Set Info", validatorSetData)
+			}
+
+		default:
+			continue
 		}
 
 	}
@@ -380,7 +379,6 @@ func indexValSetUpdates(out io.Writer, sync *sync.Mutex, vs types.Validator) err
 
 	return err
 }
-
 
 func formatFilename(name string) string {
 	now := time.Now().UTC()
