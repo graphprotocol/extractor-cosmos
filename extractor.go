@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"sync"
 
 	//	cc "github.com/figment-networks/extractor-tendermint/codec"
@@ -139,7 +140,14 @@ func (ex *ExtractorService) initStreamOutput() error {
 	if ex.config.Bundle {
 		ex.writer = NewBundleWriter(filename, ex.config.BundleSize)
 	} else {
-		ex.writer = NewFileWriter(filename)
+		switch filename {
+		case "", "stdout", "STDOUT":
+			ex.writer = NewConsoleWriter(os.Stdout)
+		case "stderr", "STDERR":
+			ex.writer = NewConsoleWriter(os.Stderr)
+		default:
+			ex.writer = NewFileWriter(filename)
+		}
 	}
 
 	ex.Logger.Info("configured stream output", "dest", filename)

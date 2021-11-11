@@ -42,17 +42,11 @@ func (w *fileWriter) Close() error {
 }
 
 func (w *fileWriter) prepareOutput() error {
-	switch w.filename {
-	case "", "stdout", "STDOUT":
-		w.file = os.Stdout
-	case "stderr", "STDERR":
-		w.file = os.Stderr
-	default:
-		file, err := os.OpenFile(w.filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_SYNC, 0666)
-		if err != nil {
-			return err
-		}
-		w.file = file
+	file, err := os.OpenFile(w.filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_SYNC, 0666)
+	if err != nil {
+		return err
 	}
+
+	w.file = file
 	return nil
 }

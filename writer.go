@@ -9,4 +9,5 @@ type Writer interface {
 var (
 	_ Writer = (*bundleWriter)(nil)
 	_ Writer = (*fileWriter)(nil)
+	_ Writer = (*consoleWriter)(nil)
 )

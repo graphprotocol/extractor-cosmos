@@ -2,6 +2,7 @@ package extractor
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -36,6 +37,23 @@ func TestValidate(t *testing.T) {
 			Enabled: true,
 			Bundle:  true,
 		}
-		assert.Equal(t, "cant use output grouping with STDOUT", config.Validate().Error())
+		assert.Equal(t, "cant use bundling with STDOUT", config.Validate().Error())
 	})
+}
+
+func TestGetOutputFile(t *testing.T) {
+	examples := []struct {
+		input    string
+		expected string
+	}{
+		{"file", "file"},
+		{"file-$date", "file-" + time.Now().UTC().Format("20060102")},
+		{"file-$time", "file-" + time.Now().UTC().Format("150405")},
+		{"file-$ts", "file-" + time.Now().UTC().Format("20060102-150405")},
+	}
+
+	for _, ex := range examples {
+		config := Config{OutputFile: ex.input}
+		assert.Equal(t, ex.expected, config.GetOutputFile())
+	}
 }
