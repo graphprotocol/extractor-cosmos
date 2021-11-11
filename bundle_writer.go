@@ -27,7 +27,7 @@ func (w *bundleWriter) SetHeight(val int) error {
 	}
 
 	chunkHeight := val - (val % w.chunkSize)
-	if chunkHeight == w.chunkHeight {
+	if chunkHeight == w.chunkHeight && w.file != nil {
 		return nil
 	}
 
