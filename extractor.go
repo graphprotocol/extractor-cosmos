@@ -28,9 +28,10 @@ const (
 type ExtractorService struct {
 	service.BaseService
 
-	config   *Config
-	eventBus *types.EventBus
+	config        *Config
+	eventBus      *types.EventBus
 	writer   Writer
+	currentHeight int64
 }
 
 func NewExtractorService(eventBus *types.EventBus, config *Config) *ExtractorService {
@@ -100,6 +101,7 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesS
 		case blockMsg := <-blockSub.Out():
 			eventData := blockMsg.Data().(types.EventDataNewBlock)
 			height := eventData.Block.Header.Height
+			ex.currentHeight = height
 
 			// Skip extraction on unwanted heights
 			if ex.shouldSkipHeight(height) {
@@ -131,7 +133,7 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesS
 		case valSetMsg := <-valSetUpdatesSub.Out():
 			setUpdates := valSetMsg.Data().(types.EventDataValidatorSetUpdates)
 
-			if err := indexValSetUpdates(w, sync, &setUpdates); err != nil {
+			if err := indexValSetUpdates(w, sync, &setUpdates, ex.currentHeight); err != nil {
 				ex.Logger.Error("failed to index Validator Set Data", "err", err)
 			}
 
@@ -235,7 +237,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 				Height:  uint64(bh.Block.Header.Height),
 				Time: &codec.Timestamp{
 					Seconds: bh.Block.Header.Time.Unix(),
-					Nanos:   0, // TODO(lukanus): do it properly
+					Nanos:   int32(bh.Block.Header.Time.UnixNano()),
 				},
 				LastBlockId:        mapBlockID(bh.Block.LastBlockID),
 				LastCommitHash:     bh.Block.Header.LastCommitHash,
@@ -259,7 +261,6 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 		},
 	}
 
-	// (lukanus): need to construct block id ... somehow
 	nb.BlockId = &codec.BlockID{
 		Hash: bh.Block.Header.Hash(),
 		/*		PartSetHeader: &codec.PartSetHeader{
@@ -290,7 +291,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 						ValidatorPower:   evN.ValidatorPower,
 						Timestamp: &codec.Timestamp{
 							Seconds: evN.Timestamp.Unix(),
-							Nanos:   0, // TODO(lukanus): do it properly
+							Nanos:   int32(evN.Timestamp.UnixNano()),
 						},
 					},
 				}
@@ -306,7 +307,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 						TotalVotingPower:    evN.TotalVotingPower,
 						Timestamp: &codec.Timestamp{
 							Seconds: evN.Timestamp.Unix(),
-							Nanos:   0, // TODO(lukanus): do it properly
+							Nanos:   int32(evN.Timestamp.UnixNano()),
 						},
 					},
 				}
@@ -361,7 +362,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 	return err
 }
 
-func indexValSetUpdates(out io.Writer, sync *sync.Mutex, updates *types.EventDataValidatorSetUpdates) error {
+func indexValSetUpdates(out io.Writer, sync *sync.Mutex, updates *types.EventDataValidatorSetUpdates, height int64) error {
 	if len(updates.ValidatorUpdates) == 0 {
 		return nil
 	}
@@ -396,10 +397,9 @@ func indexValSetUpdates(out io.Writer, sync *sync.Mutex, updates *types.EventDat
 	sync.Lock()
 	defer sync.Unlock()
 
-	// dans: We need to add height prefix
-	// Mark: Add a pointer and go that way, talk to Dan if needed
-	_, err = io.WriteString(out, fmt.Sprintf("%s %s\n",
+	_, err = io.WriteString(out, fmt.Sprintf("%s %d %s\n",
 		dmValidator,
+		height,
 		base64.StdEncoding.EncodeToString(data),
 	))
 	return err
@@ -445,7 +445,7 @@ func mapVote(edv *types.Vote) *codec.EventDataVote {
 		BlockId:       mapBlockID(edv.BlockID),
 		Timestamp: &codec.Timestamp{
 			Seconds: edv.Timestamp.Unix(),
-			Nanos:   0, // TODO(lukanus): do it properly
+			Nanos:   int32(edv.Timestamp.UnixNano()),
 		},
 		ValidatorAddress: &codec.Address{
 			Address: edv.ValidatorAddress,
