@@ -3,7 +3,6 @@ package extractor
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -16,19 +15,32 @@ import (
 
 func TestExtractorInitOutput(t *testing.T) {
 	ex := NewExtractorService(nil, &Config{})
-	writer, err := ex.initStreamOutput()
+	err := ex.initStreamOutput()
 	assert.NoError(t, err)
-	assert.Equal(t, os.Stdout, writer)
+	assert.IsType(t, &consoleWriter{}, ex.writer)
+
+	ex = NewExtractorService(nil, &Config{OutputFile: "STDOUT"})
+	err = ex.initStreamOutput()
+	assert.NoError(t, err)
+	assert.IsType(t, &consoleWriter{}, ex.writer)
 
 	ex = NewExtractorService(nil, &Config{OutputFile: "STDERR"})
-	writer, err = ex.initStreamOutput()
+	err = ex.initStreamOutput()
 	assert.NoError(t, err)
-	assert.Equal(t, os.Stderr, writer)
+	assert.IsType(t, &consoleWriter{}, ex.writer)
 
 	ex = NewExtractorService(nil, &Config{OutputFile: fmt.Sprintf("/tmp/%v", time.Now().Unix())})
-	writer, err = ex.initStreamOutput()
+	err = ex.initStreamOutput()
 	assert.NoError(t, err)
-	assert.IsType(t, &os.File{}, writer)
+	assert.IsType(t, &fileWriter{}, ex.writer)
+
+	ex = NewExtractorService(nil, &Config{
+		OutputFile: fmt.Sprintf("/tmp/%v", time.Now().Unix()),
+		Bundle:     true,
+	})
+	err = ex.initStreamOutput()
+	assert.NoError(t, err)
+	assert.IsType(t, &bundleWriter{}, ex.writer)
 }
 
 func TestIndexBlock(t *testing.T) {
@@ -115,9 +127,11 @@ func TestIndexBlock(t *testing.T) {
 
 	for _, ex := range examples {
 		output := bytes.NewBuffer(nil)
+		writer := NewConsoleWriter(output)
+
 		lock := &sync.Mutex{}
 
-		err := indexBlock(output, lock, ex.input)
+		err := indexBlock(writer, lock, ex.input)
 		if err != nil {
 			assert.Equal(t, err.Error(), ex.err)
 		}
@@ -147,29 +161,14 @@ func TestIndexTx(t *testing.T) {
 
 	for _, ex := range examples {
 		output := bytes.NewBuffer(nil)
+		writer := NewConsoleWriter(output)
 		lock := &sync.Mutex{}
 
-		err := indexTX(output, lock, ex.input)
+		err := indexTX(writer, lock, ex.input)
 		if err != nil {
 			assert.Equal(t, err.Error(), ex.err)
 		}
 		assert.Equal(t, ex.expected, output.String())
-	}
-}
-
-func TestFormatFilename(t *testing.T) {
-	examples := []struct {
-		input    string
-		expected string
-	}{
-		{"file", "file"},
-		{"file-$date", "file-" + time.Now().UTC().Format("20060102")},
-		{"file-$time", "file-" + time.Now().UTC().Format("150405")},
-		{"file-$ts", "file-" + time.Now().UTC().Format("20060102-150405")},
-	}
-
-	for _, ex := range examples {
-		assert.Equal(t, ex.expected, formatFilename(ex.input))
 	}
 }
 
