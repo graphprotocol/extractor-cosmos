@@ -30,7 +30,7 @@ type ExtractorService struct {
 
 	config        *Config
 	eventBus      *types.EventBus
-	writer   Writer
+	writer        Writer
 	currentHeight int64
 }
 
@@ -69,13 +69,12 @@ func (ex *ExtractorService) OnStart() error {
 		return err
 	}
 
-	writer, err := ex.initStreamOutput()
 	if err := ex.initStreamOutput(); err != nil {
 		ex.Logger.Error("stream output init failed", "err", err)
 		return err
 	}
 
-	go ex.listen(writer, blockSub, txsSub, valSetUpdatesSub)
+	go ex.listen(blockSub, txsSub, valSetUpdatesSub)
 
 	return nil
 }
@@ -93,7 +92,7 @@ func (ex *ExtractorService) OnStop() {
 	}
 }
 
-func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesSub types.Subscription) {
+func (ex *ExtractorService) listen(blockSub, txsSub, valSetUpdatesSub types.Subscription) {
 	sync := &sync.Mutex{}
 
 	for {
@@ -111,7 +110,7 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesS
 			}
 
 			// we need to drain all
-			if err := indexBlock(w, sync, eventData); err != nil {
+			if err := indexBlock(ex.writer, sync, eventData); err != nil {
 				ex.drainSubscription(txsSub, len(eventData.Block.Txs))
 				ex.Logger.Error("failed to index block", "height", height, "err", err)
 				continue
@@ -123,7 +122,7 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesS
 				txMsg := <-txsSub.Out()
 				txResult := txMsg.Data().(types.EventDataTx).TxResult
 
-				if err := indexTX(w, sync, &txResult); err != nil {
+				if err := indexTX(ex.writer, sync, &txResult); err != nil {
 					ex.Logger.Error("failed to index block txs", "height", height, "err", err)
 				} else {
 					ex.Logger.Debug("indexed block txs", "height", height)
@@ -133,7 +132,7 @@ func (ex *ExtractorService) listen(w io.Writer, blockSub, txsSub, valSetUpdatesS
 		case valSetMsg := <-valSetUpdatesSub.Out():
 			setUpdates := valSetMsg.Data().(types.EventDataValidatorSetUpdates)
 
-			if err := indexValSetUpdates(w, sync, &setUpdates, ex.currentHeight); err != nil {
+			if err := indexValSetUpdates(ex.writer, sync, &setUpdates, ex.currentHeight); err != nil {
 				ex.Logger.Error("failed to index Validator Set Data", "err", err)
 			}
 
@@ -352,17 +351,15 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 	sync.Lock()
 	defer sync.Unlock()
 
-	_, err = fmt.Fprintf(out, "%s %d %d %s\n",
+	return out.WriteLine(fmt.Sprintf("%s %d %d %s",
 		dmBlock,
 		bh.Block.Header.Height,
 		bh.Block.Header.Time.UnixMilli(),
 		base64.StdEncoding.EncodeToString(marshaledBlock),
-	)
-
-	return err
+	))
 }
 
-func indexValSetUpdates(out io.Writer, sync *sync.Mutex, updates *types.EventDataValidatorSetUpdates, height int64) error {
+func indexValSetUpdates(out Writer, sync *sync.Mutex, updates *types.EventDataValidatorSetUpdates, height int64) error {
 	if len(updates.ValidatorUpdates) == 0 {
 		return nil
 	}
@@ -397,21 +394,20 @@ func indexValSetUpdates(out io.Writer, sync *sync.Mutex, updates *types.EventDat
 	sync.Lock()
 	defer sync.Unlock()
 
-	_, err = io.WriteString(out, fmt.Sprintf("%s %d %s\n",
+	return out.WriteLine(fmt.Sprintf("%s %d %s",
 		dmValidator,
 		height,
 		base64.StdEncoding.EncodeToString(data),
 	))
-	return err
 }
 
-func formatFilename(name string) string {
-	now := time.Now().UTC()
-	for format, val := range timeFormats {
-		name = strings.Replace(name, format, now.Format(val), -1)
-	}
-	return name
-}
+// func formatFilename(name string) string {
+// 	now := time.Now().UTC()
+// 	for format, val := range timeFormats {
+// 		name = strings.Replace(name, format, now.Format(val), -1)
+// 	}
+// 	return name
+// }
 
 func mapBlockID(bid types.BlockID) *codec.BlockID {
 	return &codec.BlockID{
