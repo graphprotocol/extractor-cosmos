@@ -139,15 +139,22 @@ func (ex *ExtractorService) initStreamOutput() error {
 
 	if ex.config.Bundle {
 		ex.writer = NewBundleWriter(filename, ex.config.BundleSize)
-	} else {
-		switch filename {
-		case "", "stdout", "STDOUT":
-			ex.writer = NewConsoleWriter(os.Stdout)
-		case "stderr", "STDERR":
-			ex.writer = NewConsoleWriter(os.Stderr)
-		default:
-			ex.writer = NewFileWriter(filename)
-		}
+
+		ex.Logger.Info("configured stream output",
+			"dest", filename,
+			"bundle", ex.config.Bundle,
+			"bundle_size", ex.config.BundleSize,
+		)
+		return nil
+	}
+
+	switch filename {
+	case "", "stdout", "STDOUT":
+		ex.writer = NewConsoleWriter(os.Stdout)
+	case "stderr", "STDERR":
+		ex.writer = NewConsoleWriter(os.Stderr)
+	default:
+		ex.writer = NewFileWriter(filename)
 	}
 
 	ex.Logger.Info("configured stream output", "dest", filename)
