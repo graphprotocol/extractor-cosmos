@@ -262,9 +262,9 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 
 	nb.BlockId = &codec.BlockID{
 		Hash: bh.Block.Header.Hash(),
-		/*		PartSetHeader: &codec.PartSetHeader{
-				Total: bid.PartSetHeader.Total,        not sure where to get it ?
-				Hash:  bid.PartSetHeader.Hash,
+		/*	  PartSetHeader: &codec.PartSetHeader{
+				Total: bh.Block.LastBlockID.PartSetHeader.Total,        not sure where to get it ?
+				Hash:  bh.Block.LastBlockID.Hash,
 			},*/
 	}
 
@@ -401,14 +401,6 @@ func indexValSetUpdates(out Writer, sync *sync.Mutex, updates *types.EventDataVa
 	))
 }
 
-// func formatFilename(name string) string {
-// 	now := time.Now().UTC()
-// 	for format, val := range timeFormats {
-// 		name = strings.Replace(name, format, now.Format(val), -1)
-// 	}
-// 	return name
-// }
-
 func mapBlockID(bid types.BlockID) *codec.BlockID {
 	return &codec.BlockID{
 		Hash: bid.Hash,
@@ -453,21 +445,21 @@ func mapVote(edv *types.Vote) *codec.EventDataVote {
 
 func mapValidator(v abci.ValidatorUpdate) (*codec.Validator, error) {
 	nPK := &codec.PublicKey{}
-	var Address []byte
+	var address []byte
 
 	switch key := v.PubKey.Sum.(type) {
 	case *crypto.PublicKey_Ed25519:
 		nPK.Sum = &codec.PublicKey_Ed25519{Ed25519: key.Ed25519}
-		Address = tmcrypto.AddressHash(nPK.GetEd25519())
+		address = tmcrypto.AddressHash(nPK.GetEd25519())
 	case *crypto.PublicKey_Secp256K1:
 		nPK.Sum = &codec.PublicKey_Secp256K1{Secp256K1: key.Secp256K1}
-		Address = tmcrypto.AddressHash(nPK.GetSecp256K1())
+		address = tmcrypto.AddressHash(nPK.GetSecp256K1())
 	default:
 		return nil, fmt.Errorf("given type %T of PubKey mapping doesn't exist ", key)
 	}
 
 	return &codec.Validator{
-		Address:          Address,
+		Address:          address,
 		PubKey:           nPK,
 		VotingPower:      v.Power,
 		ProposerPriority: 0, // TODO(lukanus):  figure out what's up with that
