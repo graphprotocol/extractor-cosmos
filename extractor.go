@@ -459,13 +459,9 @@ func mapValidator(v abci.ValidatorUpdate) (*codec.Validator, error) {
 	}, nil
 }
 
-func nanoCalculations(nanos, secs int64) int64 {
-	return nanos - secs*1000000000
-}
-
 func mapTimestamp(time time.Time) *codec.Timestamp {
 	return &codec.Timestamp{
 		Seconds: time.Unix(),
-		Nanos:   int32(nanoCalculations(time.UnixNano(), time.Unix())),
+		Nanos:   int32(time.UnixNano() - time.Unix()*1000000000),
 	}
 }
