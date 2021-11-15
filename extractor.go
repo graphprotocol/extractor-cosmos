@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/figment-networks/tendermint-protobuf-def/codec"
 	"github.com/golang/protobuf/proto"
@@ -232,12 +233,9 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 					Block: bh.Block.Header.Version.Block,
 					App:   bh.Block.Header.Version.App,
 				},
-				ChainId: bh.Block.Header.ChainID,
-				Height:  uint64(bh.Block.Header.Height),
-				Time: &codec.Timestamp{
-					Seconds: bh.Block.Header.Time.Unix(),
-					Nanos:   int32(bh.Block.Header.Time.UnixNano()),
-				},
+				ChainId:            bh.Block.Header.ChainID,
+				Height:             uint64(bh.Block.Header.Height),
+				Time:               mapTimestamp(bh.Block.Header.Time),
 				LastBlockId:        mapBlockID(bh.Block.LastBlockID),
 				LastCommitHash:     bh.Block.Header.LastCommitHash,
 				DataHash:           bh.Block.Header.DataHash,
@@ -262,10 +260,10 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 
 	nb.BlockId = &codec.BlockID{
 		Hash: bh.Block.Header.Hash(),
-		/*	  PartSetHeader: &codec.PartSetHeader{
-				Total: bh.Block.LastBlockID.PartSetHeader.Total,        not sure where to get it ?
-				Hash:  bh.Block.LastBlockID.Hash,
-			},*/
+		PartSetHeader: &codec.PartSetHeader{
+			Total: bh.Block.LastBlockID.PartSetHeader.Total,
+			Hash:  bh.Block.LastBlockID.PartSetHeader.Hash,
+		},
 	}
 
 	if len(bh.Block.Data.Txs) > 0 {
@@ -288,10 +286,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 						VoteB:            mapVote(evN.VoteB),
 						TotalVotingPower: evN.TotalVotingPower,
 						ValidatorPower:   evN.ValidatorPower,
-						Timestamp: &codec.Timestamp{
-							Seconds: evN.Timestamp.Unix(),
-							Nanos:   int32(evN.Timestamp.UnixNano()),
-						},
+						Timestamp:        mapTimestamp(evN.Timestamp),
 					},
 				}
 			case *types.LightClientAttackEvidence:
@@ -304,10 +299,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 						CommonHeight:        evN.CommonHeight,
 						ByzantineValidators: []*codec.Validator{}, // TODO(lukanus): do it properly
 						TotalVotingPower:    evN.TotalVotingPower,
-						Timestamp: &codec.Timestamp{
-							Seconds: evN.Timestamp.Unix(),
-							Nanos:   int32(evN.Timestamp.UnixNano()),
-						},
+						Timestamp:           mapTimestamp(evN.Timestamp),
 					},
 				}
 			default:
@@ -431,10 +423,7 @@ func mapVote(edv *types.Vote) *codec.EventDataVote {
 		Height:        uint64(edv.Height),
 		Round:         edv.Round,
 		BlockId:       mapBlockID(edv.BlockID),
-		Timestamp: &codec.Timestamp{
-			Seconds: edv.Timestamp.Unix(),
-			Nanos:   int32(edv.Timestamp.UnixNano()),
-		},
+		Timestamp:     mapTimestamp(edv.Timestamp),
 		ValidatorAddress: &codec.Address{
 			Address: edv.ValidatorAddress,
 		},
@@ -462,6 +451,17 @@ func mapValidator(v abci.ValidatorUpdate) (*codec.Validator, error) {
 		Address:          address,
 		PubKey:           nPK,
 		VotingPower:      v.Power,
-		ProposerPriority: 0, // TODO(lukanus):  figure out what's up with that
+		ProposerPriority: 0,
 	}, nil
+}
+
+func nanoCalculations(nanos, secs int64) int64 {
+	return nanos - secs*1000000000
+}
+
+func mapTimestamp(time time.Time) *codec.Timestamp {
+	return &codec.Timestamp{
+		Seconds: time.Unix(),
+		Nanos:   int32(nanoCalculations(time.UnixNano(), time.Unix())),
+	}
 }
