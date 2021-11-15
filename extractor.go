@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
-	//	cc "github.com/figment-networks/extractor-tendermint/codec"
 	"github.com/figment-networks/tendermint-protobuf-def/codec"
 	"github.com/golang/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
+	tmcrypto "github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/proto/tendermint/crypto"
 	"github.com/tendermint/tendermint/types"
@@ -19,17 +20,19 @@ import (
 const (
 	subscriberName = "ExtractorService"
 
-	dmPrefix = "DMLOG "
-	dmBlock  = dmPrefix + "BLOCK"
-	dmTx     = dmPrefix + "TX"
+	dmPrefix    = "DMLOG "
+	dmBlock     = dmPrefix + "BLOCK"
+	dmTx        = dmPrefix + "TX"
+	dmValidator = dmPrefix + "VALIDATOR_SET_UPDATES"
 )
 
 type ExtractorService struct {
 	service.BaseService
 
-	config   *Config
-	eventBus *types.EventBus
-	writer   Writer
+	config        *Config
+	eventBus      *types.EventBus
+	writer        Writer
+	currentHeight int64
 }
 
 func NewExtractorService(eventBus *types.EventBus, config *Config) *ExtractorService {
@@ -62,12 +65,17 @@ func (ex *ExtractorService) OnStart() error {
 		return err
 	}
 
+	valSetUpdatesSub, err := ex.eventBus.SubscribeUnbuffered(context.Background(), subscriberName, types.EventQueryValidatorSetUpdates)
+	if err != nil {
+		return err
+	}
+
 	if err := ex.initStreamOutput(); err != nil {
 		ex.Logger.Error("stream output init failed", "err", err)
 		return err
 	}
 
-	go ex.listen(blockSub, txsSub)
+	go ex.listen(blockSub, txsSub, valSetUpdatesSub)
 
 	return nil
 }
@@ -85,40 +93,54 @@ func (ex *ExtractorService) OnStop() {
 	}
 }
 
-func (ex *ExtractorService) listen(blockSub, txsSub types.Subscription) {
+func (ex *ExtractorService) listen(blockSub, txsSub, valSetUpdatesSub types.Subscription) {
 	sync := &sync.Mutex{}
 
 	for {
-		blockMsg := <-blockSub.Out()
-		eventData := blockMsg.Data().(types.EventDataNewBlock)
-		height := eventData.Block.Header.Height
+		select {
+		case blockMsg := <-blockSub.Out():
+			eventData := blockMsg.Data().(types.EventDataNewBlock)
+			height := eventData.Block.Header.Height
+			ex.currentHeight = height
 
-		// Skip extraction on unwanted heights
-		if ex.shouldSkipHeight(height) {
-			ex.drainSubscription(txsSub, len(eventData.Block.Txs))
-			ex.Logger.Info("skipped block", "height", height)
-			continue
-		}
-		// we need to drain all
-
-		if err := indexBlock(ex.writer, sync, eventData); err != nil {
-			ex.drainSubscription(txsSub, len(eventData.Block.Txs))
-			ex.Logger.Error("failed to index block", "height", height, "err", err)
-			continue
-		}
-
-		ex.Logger.Info("indexed block", "height", height)
-
-		for i := 0; i < len(eventData.Block.Txs); i++ {
-			txMsg := <-txsSub.Out()
-			txResult := txMsg.Data().(types.EventDataTx).TxResult
-
-			if err := indexTX(ex.writer, sync, &txResult); err != nil {
-				ex.Logger.Error("failed to index block txs", "height", height, "err", err)
-			} else {
-				ex.Logger.Debug("indexed block txs", "height", height)
+			// Skip extraction on unwanted heights
+			if ex.shouldSkipHeight(height) {
+				ex.drainSubscription(txsSub, len(eventData.Block.Txs))
+				ex.Logger.Info("skipped block", "height", height)
+				continue
 			}
+
+			// we need to drain all
+			if err := indexBlock(ex.writer, sync, eventData); err != nil {
+				ex.drainSubscription(txsSub, len(eventData.Block.Txs))
+				ex.Logger.Error("failed to index block", "height", height, "err", err)
+				continue
+			}
+
+			ex.Logger.Info("indexed block", "height", height)
+
+			for i := 0; i < len(eventData.Block.Txs); i++ {
+				txMsg := <-txsSub.Out()
+				txResult := txMsg.Data().(types.EventDataTx).TxResult
+
+				if err := indexTX(ex.writer, sync, &txResult); err != nil {
+					ex.Logger.Error("failed to index block txs", "height", height, "err", err)
+				} else {
+					ex.Logger.Debug("indexed block txs", "height", height)
+				}
+			}
+
+		case valSetMsg := <-valSetUpdatesSub.Out():
+			setUpdates := valSetMsg.Data().(types.EventDataValidatorSetUpdates)
+
+			if err := indexValSetUpdates(ex.writer, sync, &setUpdates, ex.currentHeight); err != nil {
+				ex.Logger.Error("failed to index Validator Set Data", "err", err)
+			}
+
+		default:
+			continue
 		}
+
 	}
 }
 
@@ -211,12 +233,9 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 					Block: bh.Block.Header.Version.Block,
 					App:   bh.Block.Header.Version.App,
 				},
-				ChainId: bh.Block.Header.ChainID,
-				Height:  uint64(bh.Block.Header.Height),
-				Time: &codec.Timestamp{
-					Seconds: bh.Block.Header.Time.Unix(),
-					Nanos:   0, // TODO(lukanus): do it properly
-				},
+				ChainId:            bh.Block.Header.ChainID,
+				Height:             uint64(bh.Block.Header.Height),
+				Time:               mapTimestamp(bh.Block.Header.Time),
 				LastBlockId:        mapBlockID(bh.Block.LastBlockID),
 				LastCommitHash:     bh.Block.Header.LastCommitHash,
 				DataHash:           bh.Block.Header.DataHash,
@@ -239,13 +258,12 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 		},
 	}
 
-	// (lukanus): need to construct block id ... somehow
 	nb.BlockId = &codec.BlockID{
-		Hash: bh.Block.Header.DataHash, // (lukanus): is this the same as hash?
-		/*		PartSetHeader: &codec.PartSetHeader{
-				Total: bid.PartSetHeader.Total,        not sure where to get it ?
-				Hash:  bid.PartSetHeader.Hash,
-			},*/
+		Hash: bh.Block.Header.Hash(),
+		PartSetHeader: &codec.PartSetHeader{
+			Total: bh.Block.LastBlockID.PartSetHeader.Total,
+			Hash:  bh.Block.LastBlockID.PartSetHeader.Hash,
+		},
 	}
 
 	if len(bh.Block.Data.Txs) > 0 {
@@ -268,10 +286,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 						VoteB:            mapVote(evN.VoteB),
 						TotalVotingPower: evN.TotalVotingPower,
 						ValidatorPower:   evN.ValidatorPower,
-						Timestamp: &codec.Timestamp{
-							Seconds: evN.Timestamp.Unix(),
-							Nanos:   0, // TODO(lukanus): do it properly
-						},
+						Timestamp:        mapTimestamp(evN.Timestamp),
 					},
 				}
 			case *types.LightClientAttackEvidence:
@@ -284,10 +299,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 						CommonHeight:        evN.CommonHeight,
 						ByzantineValidators: []*codec.Validator{}, // TODO(lukanus): do it properly
 						TotalVotingPower:    evN.TotalVotingPower,
-						Timestamp: &codec.Timestamp{
-							Seconds: evN.Timestamp.Unix(),
-							Nanos:   0, // TODO(lukanus): do it properly
-						},
+						Timestamp:           mapTimestamp(evN.Timestamp),
 					},
 				}
 			default:
@@ -339,6 +351,48 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 	))
 }
 
+func indexValSetUpdates(out Writer, sync *sync.Mutex, updates *types.EventDataValidatorSetUpdates, height int64) error {
+	if len(updates.ValidatorUpdates) == 0 {
+		return nil
+	}
+
+	result := &codec.EventDataValidatorSetUpdates{}
+
+	for _, update := range updates.ValidatorUpdates {
+		nPK := &codec.PublicKey{}
+
+		switch update.PubKey.Type() {
+		case "ed25519":
+			nPK.Sum = &codec.PublicKey_Ed25519{Ed25519: update.PubKey.Bytes()}
+		case "secp256k1":
+			nPK.Sum = &codec.PublicKey_Secp256K1{Secp256K1: update.PubKey.Bytes()}
+		default:
+			return fmt.Errorf("unsupported pubkey type: %T", update.PubKey)
+		}
+
+		result.ValidatorUpdates = append(result.ValidatorUpdates, &codec.Validator{
+			Address:          update.Address.Bytes(),
+			VotingPower:      update.VotingPower,
+			ProposerPriority: update.ProposerPriority,
+			PubKey:           nPK,
+		})
+	}
+
+	data, err := proto.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("cant marshal validator: %v", err)
+	}
+
+	sync.Lock()
+	defer sync.Unlock()
+
+	return out.WriteLine(fmt.Sprintf("%s %d %s",
+		dmValidator,
+		height,
+		base64.StdEncoding.EncodeToString(data),
+	))
+}
+
 func mapBlockID(bid types.BlockID) *codec.BlockID {
 	return &codec.BlockID{
 		Hash: bid.Hash,
@@ -369,10 +423,7 @@ func mapVote(edv *types.Vote) *codec.EventDataVote {
 		Height:        uint64(edv.Height),
 		Round:         edv.Round,
 		BlockId:       mapBlockID(edv.BlockID),
-		Timestamp: &codec.Timestamp{
-			Seconds: edv.Timestamp.Unix(),
-			Nanos:   0, // TODO(lukanus): do it properly
-		},
+		Timestamp:     mapTimestamp(edv.Timestamp),
 		ValidatorAddress: &codec.Address{
 			Address: edv.ValidatorAddress,
 		},
@@ -383,20 +434,34 @@ func mapVote(edv *types.Vote) *codec.EventDataVote {
 
 func mapValidator(v abci.ValidatorUpdate) (*codec.Validator, error) {
 	nPK := &codec.PublicKey{}
+	var address []byte
 
 	switch key := v.PubKey.Sum.(type) {
 	case *crypto.PublicKey_Ed25519:
 		nPK.Sum = &codec.PublicKey_Ed25519{Ed25519: key.Ed25519}
+		address = tmcrypto.AddressHash(nPK.GetEd25519())
 	case *crypto.PublicKey_Secp256K1:
 		nPK.Sum = &codec.PublicKey_Secp256K1{Secp256K1: key.Secp256K1}
+		address = tmcrypto.AddressHash(nPK.GetSecp256K1())
 	default:
 		return nil, fmt.Errorf("given type %T of PubKey mapping doesn't exist ", key)
 	}
 
 	return &codec.Validator{
-		Address:          nil, // TODO(lukanus):  figure out what's up with that
+		Address:          address,
 		PubKey:           nPK,
 		VotingPower:      v.Power,
-		ProposerPriority: 0, // TODO(lukanus):  figure out what's up with that
+		ProposerPriority: 0,
 	}, nil
+}
+
+func nanoCalculations(nanos, secs int64) int64 {
+	return nanos - secs*1000000000
+}
+
+func mapTimestamp(time time.Time) *codec.Timestamp {
+	return &codec.Timestamp{
+		Seconds: time.Unix(),
+		Nanos:   int32(nanoCalculations(time.UnixNano(), time.Unix())),
+	}
 }
