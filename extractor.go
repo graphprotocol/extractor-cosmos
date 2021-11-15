@@ -447,6 +447,10 @@ func mapValidator(v abci.ValidatorUpdate) (*codec.Validator, error) {
 		return nil, fmt.Errorf("given type %T of PubKey mapping doesn't exist ", key)
 	}
 
+	// NOTE on ProposerPriority field: Priority value seems to be calcuulated in the
+	// context of the validator set. We're already processing this as a separate event.
+	// More info in here: https://docs.tendermint.com/v0.34/spec/consensus/proposer-selection.html
+
 	return &codec.Validator{
 		Address:          address,
 		PubKey:           nPK,
