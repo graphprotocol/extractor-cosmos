@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/libs/pubsub"
 	"github.com/tendermint/tendermint/types"
 )
@@ -165,6 +166,46 @@ func TestIndexTx(t *testing.T) {
 		lock := &sync.Mutex{}
 
 		err := indexTX(writer, lock, ex.input)
+		if err != nil {
+			assert.Equal(t, err.Error(), ex.err)
+		}
+		assert.Equal(t, ex.expected, output.String())
+	}
+}
+
+func TestIndexValidatorSetUpdates(t *testing.T) {
+	examples := []struct {
+		input    *types.EventDataValidatorSetUpdates
+		height   int64
+		expected string
+		err      string
+	}{
+		{
+			input:    &types.EventDataValidatorSetUpdates{},
+			expected: "",
+		},
+		{
+			height: 1000,
+			input: &types.EventDataValidatorSetUpdates{
+				ValidatorUpdates: []*types.Validator{
+					{
+						Address:          []byte{},
+						PubKey:           ed25519.GenPrivKeyFromSecret([]byte("secret")).PubKey(),
+						VotingPower:      1000,
+						ProposerPriority: 0,
+					},
+				},
+			},
+			expected: "DMLOG VALIDATOR_SET_UPDATES 1000 0 CicSIgogXQNqhYzon4REkXYuuJ4r+9UKSgoNpljksmKLJbEXrgkY6Ac=\n",
+		},
+	}
+
+	for _, ex := range examples {
+		output := bytes.NewBuffer(nil)
+		writer := NewConsoleWriter(output)
+		lock := &sync.Mutex{}
+
+		err := indexValSetUpdates(writer, lock, ex.input, ex.height)
 		if err != nil {
 			assert.Equal(t, err.Error(), ex.err)
 		}
