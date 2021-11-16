@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/figment-networks/tendermint-protobuf-def/codec"
+	"github.com/figment-networks/tendermint-protobuf-def/github.com/figment-networks/tendermint-protobuf-def/codec"
 	"github.com/golang/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcrypto "github.com/tendermint/tendermint/crypto"
@@ -184,7 +184,7 @@ func (ex *ExtractorService) initStreamOutput() error {
 }
 
 func indexTX(out Writer, sync *sync.Mutex, result *abci.TxResult) error {
-	tx := &codec.EventDataTx{
+	tx := &codec.EventTx{
 		TxResult: &codec.TxResult{
 			Height: uint64(result.Height),
 			Index:  result.Index,
@@ -226,7 +226,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 		return err
 	}
 
-	nb := &codec.EventDataNewBlock{
+	nb := &codec.EventBlock{
 		Block: &codec.Block{
 			Header: &codec.Header{
 				Version: &codec.Consensus{
@@ -356,7 +356,7 @@ func indexValSetUpdates(out Writer, sync *sync.Mutex, updates *types.EventDataVa
 		return nil
 	}
 
-	result := &codec.EventDataValidatorSetUpdates{}
+	result := &codec.EventValidatorSetUpdates{}
 
 	for _, update := range updates.ValidatorUpdates {
 		nPK := &codec.PublicKey{}
@@ -417,8 +417,8 @@ func mapEvent(ev abci.Event) *codec.Event {
 	return cev
 }
 
-func mapVote(edv *types.Vote) *codec.EventDataVote {
-	return &codec.EventDataVote{
+func mapVote(edv *types.Vote) *codec.EventVote {
+	return &codec.EventVote{
 		Eventvotetype: codec.SignedMsgType(edv.Type),
 		Height:        uint64(edv.Height),
 		Round:         edv.Round,

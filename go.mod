@@ -3,7 +3,7 @@ module github.com/figment-networks/extractor-tendermint
 go 1.17
 
 require (
-	github.com/figment-networks/tendermint-protobuf-def v0.0.0-rc6
+	github.com/figment-networks/tendermint-protobuf-def v0.0.0-rc7-lite
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.4.3
 	github.com/stretchr/testify v1.7.0
