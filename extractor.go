@@ -386,9 +386,10 @@ func indexValSetUpdates(out Writer, sync *sync.Mutex, updates *types.EventDataVa
 	sync.Lock()
 	defer sync.Unlock()
 
-	return out.WriteLine(fmt.Sprintf("%s %d %s",
+	return out.WriteLine(fmt.Sprintf("%s %d %d %s",
 		dmValidator,
 		height,
+		0, // validator update dont have index
 		base64.StdEncoding.EncodeToString(data),
 	))
 }
