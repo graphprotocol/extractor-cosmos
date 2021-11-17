@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/figment-networks/tendermint-protobuf-def/github.com/figment-networks/tendermint-protobuf-def/codec"
+	"github.com/figment-networks/tendermint-protobuf-def/codec"
 	"github.com/golang/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcrypto "github.com/tendermint/tendermint/crypto"
