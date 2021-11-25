@@ -255,6 +255,8 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 				BlockId:    mapBlockID(bh.Block.LastCommit.BlockID),
 				Signatures: []*codec.CommitSig{}, // TODO(lukanus): do it properly
 			},
+			Evidence: &codec.EvidenceList{},
+			Data:     &codec.Data{},
 		},
 	}
 
@@ -267,14 +269,12 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 	}
 
 	if len(bh.Block.Data.Txs) > 0 {
-		nb.Block.Data = &codec.Data{}
 		for _, tx := range bh.Block.Data.Txs {
 			nb.Block.Data.Txs = append(nb.Block.Data.Txs, tx)
 		}
 	}
 
 	if len(bh.Block.Evidence.Evidence) > 0 {
-		nb.Block.Evidence = &codec.EvidenceList{}
 		for _, ev := range bh.Block.Evidence.Evidence {
 
 			newEv := &codec.Evidence{}
