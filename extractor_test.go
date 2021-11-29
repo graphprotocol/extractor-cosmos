@@ -69,7 +69,7 @@ func TestIndexBlock(t *testing.T) {
 					},
 				},
 			},
-			expected: "DMLOG BLOCK 1 1634674166000 CiYKHAoAEghjaGFpbi1pZBgBIgYI9su8iwYqAhIAcgAiBhoEEgIIARICEgA=\n",
+			expected: "DMLOG BLOCK 1 1634674166000 CioKHAoAEghjaGFpbi1pZBgBIgYI9su8iwYqAhIAcgASABoAIgYaBBICCAESAhIA\n",
 		},
 		{
 			input: types.EventDataNewBlock{
@@ -122,7 +122,7 @@ func TestIndexBlock(t *testing.T) {
 					},
 				},
 			},
-			expected: "DMLOG BLOCK 2 1634674166000 CiYKHAoAEghjaGFpbi1pZBgCIgYI9su8iwYqAhIAcgAiBhoEEgIIARICEgAaPAocCgpldmVudFR5cGUxEg4KBGtleTESBnZhbHVlMQocCgpldmVudFR5cGUyEg4KBGtleTESBnZhbHVlMSI+EgAaHAoKZXZlbnRUeXBlMRIOCgRrZXkxEgZ2YWx1ZTEaHAoKZXZlbnRUeXBlMhIOCgRrZXkxEgZ2YWx1ZTE=\n",
+			expected: "DMLOG BLOCK 2 1634674166000 CioKHAoAEghjaGFpbi1pZBgCIgYI9su8iwYqAhIAcgASABoAIgYaBBICCAESAhIAGjwKHAoKZXZlbnRUeXBlMRIOCgRrZXkxEgZ2YWx1ZTEKHAoKZXZlbnRUeXBlMhIOCgRrZXkxEgZ2YWx1ZTEiPhIAGhwKCmV2ZW50VHlwZTESDgoEa2V5MRIGdmFsdWUxGhwKCmV2ZW50VHlwZTISDgoEa2V5MRIGdmFsdWUx\n",
 		},
 	}
 
