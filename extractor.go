@@ -290,7 +290,9 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 					},
 				}
 			case *types.LightClientAttackEvidence:
-				mappedValidators, err := mapValidators(evN.ConflictingBlock.ValidatorSet.Validators)
+				mappedSetValidators, err := mapValidators(evN.ConflictingBlock.ValidatorSet.Validators)
+
+				mappedByzantineValidators, err := mapValidators(evN.ByzantineValidators)
 				if err != nil {
 					return err
 				}
@@ -327,13 +329,13 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 								},
 							},
 							ValidatorSet: &codec.ValidatorSet{
-								Validators:       mappedValidators,
+								Validators:       mappedSetValidators,
 								Proposer:         mapProposer(evN.ConflictingBlock.ValidatorSet.Proposer),
 								TotalVotingPower: evN.ConflictingBlock.ValidatorSet.TotalVotingPower(),
 							},
 						},
 						CommonHeight:        evN.CommonHeight,
-						ByzantineValidators: []*codec.Validator{}, // TODO(lukanus): do it properly
+						ByzantineValidators: mappedByzantineValidators,
 						TotalVotingPower:    evN.TotalVotingPower,
 						Timestamp:           mapTimestamp(evN.Timestamp),
 					},
