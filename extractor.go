@@ -290,11 +290,47 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 					},
 				}
 			case *types.LightClientAttackEvidence:
+				mappedValidators, err := mapValidators(evN.ConflictingBlock.ValidatorSet.Validators)
+				if err != nil {
+					return err
+				}
 				newEv.Sum = &codec.Evidence_LightClientAttackEvidence{
 					LightClientAttackEvidence: &codec.LightClientAttackEvidence{
 						ConflictingBlock: &codec.LightBlock{
-							SignedHeader: &codec.SignedHeader{}, // TODO(lukanus): do it properly
-							ValidatorSet: &codec.ValidatorSet{}, // TODO(lukanus): do it properly
+							SignedHeader: &codec.SignedHeader{
+								Header: &codec.Header{
+									Version: &codec.Consensus{
+										Block: evN.ConflictingBlock.Version.Block,
+										App:   evN.ConflictingBlock.Version.App,
+									},
+									ChainId:            evN.ConflictingBlock.Header.ChainID,
+									Height:             uint64(evN.ConflictingBlock.Header.Height),
+									Time:               mapTimestamp(evN.ConflictingBlock.Header.Time),
+									LastBlockId:        mapBlockID(evN.ConflictingBlock.Header.LastBlockID),
+									LastCommitHash:     evN.ConflictingBlock.Header.LastCommitHash,
+									DataHash:           evN.ConflictingBlock.Header.DataHash,
+									ValidatorsHash:     evN.ConflictingBlock.Header.ValidatorsHash,
+									NextValidatorsHash: evN.ConflictingBlock.Header.NextValidatorsHash,
+									ConsensusHash:      evN.ConflictingBlock.Header.ConsensusHash,
+									AppHash:            evN.ConflictingBlock.Header.AppHash,
+									LastResultsHash:    evN.ConflictingBlock.Header.LastResultsHash,
+									EvidenceHash:       evN.ConflictingBlock.Header.EvidenceHash,
+									ProposerAddress: &codec.Address{
+										Address: evN.ConflictingBlock.Header.ProposerAddress,
+									},
+								},
+								Commit: &codec.Commit{
+									Height:     uint64(evN.ConflictingBlock.Commit.Height),
+									Round:      evN.ConflictingBlock.Commit.Round,
+									BlockId:    mapBlockID(evN.ConflictingBlock.Commit.BlockID),
+									Signatures: []*codec.CommitSig{}, // TODO(mpreston): figure out how we do these
+								},
+							},
+							ValidatorSet: &codec.ValidatorSet{
+								Validators:       mappedValidators,
+								Proposer:         mapProposer(evN.ConflictingBlock.ValidatorSet.Proposer),
+								TotalVotingPower: evN.ConflictingBlock.ValidatorSet.TotalVotingPower(),
+							},
 						},
 						CommonHeight:        evN.CommonHeight,
 						ByzantineValidators: []*codec.Validator{}, // TODO(lukanus): do it properly
@@ -302,6 +338,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 						Timestamp:           mapTimestamp(evN.Timestamp),
 					},
 				}
+
 			default:
 				return fmt.Errorf("given type %T of EvidenceList mapping doesn't exist ", ev)
 			}
@@ -327,7 +364,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 		}
 
 		for _, v := range bh.ResultEndBlock.ValidatorUpdates {
-			val, err := mapValidator(v)
+			val, err := mapValidatorUpdate(v)
 			if err != nil {
 				return err
 			}
@@ -404,6 +441,16 @@ func mapBlockID(bid types.BlockID) *codec.BlockID {
 	}
 }
 
+func mapProposer(val *types.Validator) *codec.Validator {
+	nPK := &codec.PublicKey{}
+
+	return &codec.Validator{
+		Address:          val.Address,
+		PubKey:           nPK,
+		ProposerPriority: 0,
+	}
+}
+
 func mapEvent(ev abci.Event) *codec.Event {
 	cev := &codec.Event{Eventtype: ev.Type}
 
@@ -433,7 +480,7 @@ func mapVote(edv *types.Vote) *codec.EventVote {
 	}
 }
 
-func mapValidator(v abci.ValidatorUpdate) (*codec.Validator, error) {
+func mapValidatorUpdate(v abci.ValidatorUpdate) (*codec.Validator, error) {
 	nPK := &codec.PublicKey{}
 	var address []byte
 
@@ -457,6 +504,42 @@ func mapValidator(v abci.ValidatorUpdate) (*codec.Validator, error) {
 		PubKey:           nPK,
 		VotingPower:      v.Power,
 		ProposerPriority: 0,
+	}, nil
+}
+
+func mapValidators(v []*types.Validator) ([]*codec.Validator, error) {
+	validators := []*codec.Validator{}
+	if len(v) > 0 {
+		for _, v := range v {
+			valv := v
+			val, err := mapValidator(valv)
+			if err != nil {
+				return nil, err
+			}
+			validators = append(validators, val)
+		}
+	}
+	return validators, nil
+}
+
+func mapValidator(v *types.Validator) (*codec.Validator, error) {
+	nPK := &codec.PublicKey{}
+
+	// key := v.PubKey.Type()
+	// switch key {
+	// case "Ed25519":
+	// 	nPK.Sum = &codec.PublicKey_Ed25519{Ed25519: key.Ed25519}
+	// case "Secp256K1":
+	// 	nPK.Sum = &codec.PublicKey_Secp256K1{Secp256K1: key.Secp256K1}
+	// default:
+	// 	return nil, fmt.Errorf("given type %T of PubKey mapping doesn't exist ", key)
+	// }
+
+	return &codec.Validator{
+		Address:          v.Address,
+		PubKey:           nPK, // TODO (mpreston): this needs to be finalized as it doesn't have .Sum available
+		VotingPower:      v.VotingPower,
+		ProposerPriority: v.ProposerPriority,
 	}, nil
 }
 
