@@ -226,6 +226,8 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 		return err
 	}
 
+	mappedCommitSignatures, err := mapSignatures(bh.Block.LastCommit.Signatures)
+
 	nb := &codec.EventBlock{
 		Block: &codec.Block{
 			Header: &codec.Header{
@@ -253,7 +255,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 				Height:     uint64(bh.Block.LastCommit.Height),
 				Round:      bh.Block.LastCommit.Round,
 				BlockId:    mapBlockID(bh.Block.LastCommit.BlockID),
-				Signatures: []*codec.CommitSig{}, // TODO(lukanus): do it properly
+				Signatures: mappedCommitSignatures,
 			},
 			Evidence: &codec.EvidenceList{},
 			Data:     &codec.Data{},
@@ -300,6 +302,11 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 					return err
 				}
 
+				mappedCommitSignatures, err := mapSignatures(evN.ConflictingBlock.Commit.Signatures)
+				if err != nil {
+					return err
+				}
+
 				newEv.Sum = &codec.Evidence_LightClientAttackEvidence{
 					LightClientAttackEvidence: &codec.LightClientAttackEvidence{
 						ConflictingBlock: &codec.LightBlock{
@@ -329,7 +336,7 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 									Height:     uint64(evN.ConflictingBlock.Commit.Height),
 									Round:      evN.ConflictingBlock.Commit.Round,
 									BlockId:    mapBlockID(evN.ConflictingBlock.Commit.BlockID),
-									Signatures: []*codec.CommitSig{}, // TODO(mpreston): figure out how we do these
+									Signatures: mappedCommitSignatures,
 								},
 							},
 							ValidatorSet: &codec.ValidatorSet{
@@ -484,6 +491,31 @@ func mapVote(edv *types.Vote) *codec.EventVote {
 		ValidatorIndex: edv.ValidatorIndex,
 		Signature:      edv.Signature,
 	}
+}
+
+func mapSignatures(cs []types.CommitSig) ([]*codec.CommitSig, error) {
+	signatures := []*codec.CommitSig{}
+	if len(cs) > 0 {
+		for _, cs := range cs {
+			sig := cs
+			signature, err := mapSignature(sig)
+			if err != nil {
+				return nil, err
+			}
+			signatures = append(signatures, signature)
+		}
+	}
+	return signatures, nil
+}
+
+func mapSignature(s types.CommitSig) (*codec.CommitSig, error) {
+
+	return &codec.CommitSig{
+		BlockIdFlag:      codec.BlockIDFlag(s.BlockIDFlag),
+		ValidatorAddress: s.ValidatorAddress, // TODO (mpreston): I'm not sure how to get this in a format we require
+		Timestamp:        mapTimestamp(s.Timestamp),
+		Signature:        s.Signature,
+	}, nil
 }
 
 func mapValidatorUpdate(v abci.ValidatorUpdate) (*codec.Validator, error) {
