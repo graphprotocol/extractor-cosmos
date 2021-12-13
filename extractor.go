@@ -291,11 +291,15 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 				}
 			case *types.LightClientAttackEvidence:
 				mappedSetValidators, err := mapValidators(evN.ConflictingBlock.ValidatorSet.Validators)
+				if err != nil {
+					return err
+				}
 
 				mappedByzantineValidators, err := mapValidators(evN.ByzantineValidators)
 				if err != nil {
 					return err
 				}
+
 				newEv.Sum = &codec.Evidence_LightClientAttackEvidence{
 					LightClientAttackEvidence: &codec.LightClientAttackEvidence{
 						ConflictingBlock: &codec.LightBlock{
