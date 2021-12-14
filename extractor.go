@@ -227,6 +227,9 @@ func indexBlock(out Writer, sync *sync.Mutex, bh types.EventDataNewBlock) error 
 	}
 
 	mappedCommitSignatures, err := mapSignatures(bh.Block.LastCommit.Signatures)
+	if err != nil {
+		return err
+	}
 
 	nb := &codec.EventBlock{
 		Block: &codec.Block{
@@ -512,7 +515,7 @@ func mapSignature(s types.CommitSig) (*codec.CommitSig, error) {
 
 	return &codec.CommitSig{
 		BlockIdFlag:      codec.BlockIDFlag(s.BlockIDFlag),
-		ValidatorAddress: s.ValidatorAddress, // TODO (mpreston): I'm not sure how to get this in a format we require
+		ValidatorAddress: &codec.Address{Address: s.ValidatorAddress.Bytes()},
 		Timestamp:        mapTimestamp(s.Timestamp),
 		Signature:        s.Signature,
 	}, nil
