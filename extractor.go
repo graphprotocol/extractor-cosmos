@@ -566,15 +566,15 @@ func mapValidators(v []*types.Validator) ([]*codec.Validator, error) {
 func mapValidator(v *types.Validator) (*codec.Validator, error) {
 	nPK := &codec.PublicKey{}
 
-	// key := v.PubKey.Type()
-	// switch key {
-	// case "Ed25519":
-	// 	nPK.Sum = &codec.PublicKey_Ed25519{Ed25519: key.Ed25519}
-	// case "Secp256K1":
-	// 	nPK.Sum = &codec.PublicKey_Secp256K1{Secp256K1: key.Secp256K1}
-	// default:
-	// 	return nil, fmt.Errorf("given type %T of PubKey mapping doesn't exist ", key)
-	// }
+	key := v.PubKey
+	switch key.Type() {
+	case "Ed25519":
+		nPK.Sum = &codec.PublicKey_Ed25519{Ed25519: key.Bytes()}
+	case "Secp256K1":
+		nPK.Sum = &codec.PublicKey_Secp256K1{Secp256K1: key.Bytes()}
+	default:
+		return nil, fmt.Errorf("given type %T of PubKey mapping doesn't exist ", key)
+	}
 
 	return &codec.Validator{
 		Address:          v.Address,
