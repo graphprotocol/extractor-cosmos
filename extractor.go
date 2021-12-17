@@ -569,9 +569,11 @@ func mapValidator(v *types.Validator) (*codec.Validator, error) {
 	key := v.PubKey
 	switch key.Type() {
 	case "Ed25519":
-		nPK.Sum = &codec.PublicKey_Ed25519{Ed25519: key.Bytes()}
+		nPK = &codec.PublicKey{
+			Sum: &codec.PublicKey_Ed25519{Ed25519: key.Bytes()}}
 	case "Secp256K1":
-		nPK.Sum = &codec.PublicKey_Secp256K1{Secp256K1: key.Bytes()}
+		nPK = &codec.PublicKey{
+			Sum: &codec.PublicKey_Secp256K1{Secp256K1: key.Bytes()}}
 	default:
 		return nil, fmt.Errorf("given type %T of PubKey mapping doesn't exist ", key)
 	}
