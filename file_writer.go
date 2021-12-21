@@ -16,7 +16,7 @@ func NewFileWriter(filename string) Writer {
 	}
 }
 
-func (w *fileWriter) SetHeight(height int) error {
+func (w *fileWriter) SetHeight(height int64) error {
 	return nil
 }
 
