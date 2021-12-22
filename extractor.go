@@ -498,15 +498,14 @@ func mapVote(edv *types.Vote) *codec.EventVote {
 	}
 }
 
-func mapSignatures(cs []types.CommitSig) ([]*codec.CommitSig, error) {
-	signatures := []*codec.CommitSig{}
-	for _, cs := range cs {
-		sig := cs
-		signature, err := mapSignature(sig)
+func mapSignatures(commitSignatures []types.CommitSig) ([]*codec.CommitSig, error) {
+	signatures := make([]*codec.CommitSig, len(commitSignatures))
+	for i, commitSignature := range commitSignatures {
+		signature, err := mapSignature(commitSignature)
 		if err != nil {
 			return nil, err
 		}
-		signatures = append(signatures, signature)
+		signatures[i] = signature
 	}
 	return signatures, nil
 }
@@ -548,7 +547,7 @@ func mapValidatorUpdate(v abci.ValidatorUpdate) (*codec.Validator, error) {
 }
 
 func mapValidators(srcValidators []*types.Validator) ([]*codec.Validator, error) {
-	var validators = make([]*codec.Validator, len(srcValidators))
+	validators := make([]*codec.Validator, len(srcValidators))
 	for i, validator := range srcValidators {
 		val, err := mapValidator(validator)
 		if err != nil {
