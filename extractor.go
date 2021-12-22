@@ -12,6 +12,8 @@ import (
 	"github.com/golang/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcrypto "github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/crypto/secp256k1"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/proto/tendermint/crypto"
 	"github.com/tendermint/tendermint/types"
@@ -498,21 +500,18 @@ func mapVote(edv *types.Vote) *codec.EventVote {
 
 func mapSignatures(cs []types.CommitSig) ([]*codec.CommitSig, error) {
 	signatures := []*codec.CommitSig{}
-	if len(cs) > 0 {
-		for _, cs := range cs {
-			sig := cs
-			signature, err := mapSignature(sig)
-			if err != nil {
-				return nil, err
-			}
-			signatures = append(signatures, signature)
+	for _, cs := range cs {
+		sig := cs
+		signature, err := mapSignature(sig)
+		if err != nil {
+			return nil, err
 		}
+		signatures = append(signatures, signature)
 	}
 	return signatures, nil
 }
 
 func mapSignature(s types.CommitSig) (*codec.CommitSig, error) {
-
 	return &codec.CommitSig{
 		BlockIdFlag:      codec.BlockIDFlag(s.BlockIDFlag),
 		ValidatorAddress: &codec.Address{Address: s.ValidatorAddress.Bytes()},
@@ -548,17 +547,14 @@ func mapValidatorUpdate(v abci.ValidatorUpdate) (*codec.Validator, error) {
 	}, nil
 }
 
-func mapValidators(v []*types.Validator) ([]*codec.Validator, error) {
-	validators := []*codec.Validator{}
-	if len(v) > 0 {
-		for _, v := range v {
-			valv := v
-			val, err := mapValidator(valv)
-			if err != nil {
-				return nil, err
-			}
-			validators = append(validators, val)
+func mapValidators(srcValidators []*types.Validator) ([]*codec.Validator, error) {
+	var validators = make([]*codec.Validator, len(srcValidators))
+	for i, validator := range srcValidators {
+		val, err := mapValidator(validator)
+		if err != nil {
+			return nil, err
 		}
+		validators[i] = val
 	}
 	return validators, nil
 }
@@ -568,21 +564,23 @@ func mapValidator(v *types.Validator) (*codec.Validator, error) {
 
 	key := v.PubKey
 	switch key.Type() {
-	case "Ed25519":
+	case ed25519.KeyType:
 		nPK = &codec.PublicKey{
 			Sum: &codec.PublicKey_Ed25519{Ed25519: key.Bytes()}}
-	case "Secp256K1":
+	case secp256k1.KeyType:
 		nPK = &codec.PublicKey{
 			Sum: &codec.PublicKey_Secp256K1{Secp256K1: key.Bytes()}}
 	default:
 		return nil, fmt.Errorf("given type %T of PubKey mapping doesn't exist ", key)
 	}
 
+	// NOTE: See note in mapValidatorUpdate() about ProposerPriority
+
 	return &codec.Validator{
 		Address:          v.Address,
-		PubKey:           nPK, // TODO (mpreston): this needs to be finalized as it doesn't have .Sum available
+		PubKey:           nPK,
 		VotingPower:      v.VotingPower,
-		ProposerPriority: v.ProposerPriority,
+		ProposerPriority: 0,
 	}, nil
 }
 
