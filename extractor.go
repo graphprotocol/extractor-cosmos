@@ -2,6 +2,7 @@ package extractor
 
 import (
 	"fmt"
+	"sync"
 )
 
 const (
@@ -15,8 +16,9 @@ const (
 )
 
 var (
-	dmPrefix = "DMLOG "
-	writer   Writer
+	dmPrefix   = "DMLOG "
+	writer     Writer
+	writerLock = sync.Mutex{}
 )
 
 func SetPrefix(val string) {
@@ -47,6 +49,10 @@ func SetHeight(height int64) error {
 	if writer == nil {
 		panic("writer is not set")
 	}
+
+	writerLock.Lock()
+	defer writerLock.Unlock()
+
 	return writer.SetHeight(height)
 }
 
@@ -54,5 +60,9 @@ func WriteLine(kind string, format string, args ...interface{}) error {
 	if writer == nil {
 		panic("writer is not set")
 	}
+
+	writerLock.Lock()
+	defer writerLock.Unlock()
+
 	return writer.WriteLine(dmPrefix + kind + " " + fmt.Sprintf(format, args...))
 }
