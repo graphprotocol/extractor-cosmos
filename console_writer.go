@@ -15,7 +15,7 @@ func NewConsoleWriter(dst io.Writer) Writer {
 	}
 }
 
-func (c consoleWriter) SetHeight(height int) error {
+func (c consoleWriter) SetHeight(height int64) error {
 	return nil
 }
 

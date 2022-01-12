@@ -23,7 +23,7 @@ type Config struct {
 	StartHeight int64  `mapstructure:"start_height"`
 	EndHeight   int64  `mapstructure:"end_height"`
 	Bundle      bool   `mapstructure:"bundle"`
-	BundleSize  int    `mapstructure:"bundle_size"`
+	BundleSize  int64  `mapstructure:"bundle_size"`
 }
 
 // DefaultConfig returns a default extractor config

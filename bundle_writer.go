@@ -10,18 +10,18 @@ type bundleWriter struct {
 	filename    string
 	file        *os.File
 	height      int
-	chunkSize   int
-	chunkHeight int
+	chunkSize   int64
+	chunkHeight int64
 }
 
-func NewBundleWriter(filename string, chunkSize int) Writer {
+func NewBundleWriter(filename string, chunkSize int64) Writer {
 	return &bundleWriter{
 		filename:  filename,
 		chunkSize: chunkSize,
 	}
 }
 
-func (w *bundleWriter) SetHeight(val int) error {
+func (w *bundleWriter) SetHeight(val int64) error {
 	if w.chunkSize == 0 {
 		return errors.New("chunk size is zero")
 	}
