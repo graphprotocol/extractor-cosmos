@@ -16,11 +16,11 @@ func main() {
   // Customize the logs prefix (DMLOG is a default)
   extractor.SetPrefix("DMLOG")
 
-  // Initialize height frame (this is needed when using bundled output)
+  // Initialize height frame (this is needed when using bundled output) and write block data
   extractor.SetHeight(12345)
-
-  // Write data
+  extractor.WriteLine(extractor.MsgBegin, "%d", 12345)
   extractor.WriteLine(extractor.MsgBlock, "...block data...")
+  extractor.WriteLine(extractor.MsgEnd, "%d", 12345)
 }
 ```
 
