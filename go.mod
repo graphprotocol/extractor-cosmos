@@ -1,4 +1,4 @@
-module github.com/figment-networks/extractor-tendermint
+module github.com/figment-networks/extractor-cosmos
 
 go 1.17
 
