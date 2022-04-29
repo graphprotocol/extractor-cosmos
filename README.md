@@ -1,6 +1,6 @@
-# extractor-tendermint
+# extractor-cosmos
 
-Blockchain data extraction utilities for Tendermint
+Blockchain data extraction utilities for Cosmos
 
 ## Usage
 
@@ -24,7 +24,7 @@ func main() {
 }
 ```
 
-## Tendermint Instrumentation
+## Cosmos Instrumentation
 
 TODO: Add this section
 
